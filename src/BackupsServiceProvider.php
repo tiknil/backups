@@ -4,6 +4,7 @@ namespace Tiknil\Backups;
 
 use Illuminate\Support\ServiceProvider;
 use Tiknil\Backups\Commands\BackupChecks;
+use Tiknil\Backups\Commands\BackupRestore;
 use Tiknil\Backups\Commands\DailyBackup;
 
 class BackupsServiceProvider extends ServiceProvider
@@ -30,6 +31,7 @@ class BackupsServiceProvider extends ServiceProvider
         $this->commands([
             DailyBackup::class,
             BackupChecks::class,
+            BackupRestore::class,
         ]);
     }
 
