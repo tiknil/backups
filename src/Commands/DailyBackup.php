@@ -3,6 +3,8 @@
 namespace Tiknil\Backups\Commands;
 
 use Illuminate\Console\Command;
+use Spatie\Backup\Tasks\Backup\DbDumperFactory;
+use Tiknil\Backups\Core\Dumpers\MySqlDumper;
 use Tiknil\Backups\Core\FilesIncrementalBackup;
 use Tiknil\Backups\Core\RetentionPeriod;
 use Tiknil\Backups\Core\S3Disk;
@@ -96,6 +98,7 @@ class DailyBackup extends Command
 
     private function performLaravelBackup(string $path, string $filename): int
     {
+        DbDumperFactory::extend('mysql', fn () => new MySqlDumper);
         $this->newLine();
         $this->line('Starting spatie backup:run process');
         $exitCode = $this->call('backup:run', [

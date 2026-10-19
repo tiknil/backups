@@ -6,6 +6,22 @@ return [
 
     'destination_disk' => env('BACKUP_DESTINATION_DISK', 'backups'),
 
+    /*
+     * Custom settings for the spatie/db-dumper config.
+     */
+    'dumper_settings' => [
+        'mysql' => [
+            'quick' => true,                // Reduces RAM usage
+            'single-transaction' => true,   // Disable table locking during backup
+            'skip-comments' => true,        // Skip comments in the resulting .sql file
+            'gtid-purged' => 'OFF',         // Disables  binari log so import does not require SUPER privilege
+            'extra_options' => [
+                // '--skip-ssl',            // Should only be used for testing in local environments
+                '--order-by-primary',       // Orders data by primary keys. Significantly improves import speed
+            ],
+        ],
+    ],
+
     'retention_days' => [
         'daily' => 8,
         'weekly' => 35,
