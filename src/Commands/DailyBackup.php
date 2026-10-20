@@ -3,6 +3,8 @@
 namespace Tiknil\Backups\Commands;
 
 use Illuminate\Console\Command;
+use Spatie\Backup\Commands\BackupCommand;
+use Spatie\Backup\Config\Config as SpatieConfig;
 use Spatie\Backup\Tasks\Backup\DbDumperFactory;
 use Tiknil\Backups\Core\Dumpers\MySqlDumper;
 use Tiknil\Backups\Core\FilesIncrementalBackup;
@@ -86,6 +88,7 @@ class DailyBackup extends Command
             (array) config('tk-backups.file_sources', []),
             config('tk-backups.destination_disk'),
             'files',
+            (int) config('tk-backups.concurrency', 8),
         );
         $fileBackup->execute($this);
 
@@ -99,19 +102,32 @@ class DailyBackup extends Command
     private function performLaravelBackup(string $path, string $filename): int
     {
         DbDumperFactory::extend('mysql', fn () => new MySqlDumper);
+
         $this->newLine();
         $this->line('Starting spatie backup:run process');
-        $exitCode = $this->call('backup:run', [
-            '--destination-path' => $path,
+        $exitCode = $this->call(new BackupCommand($this->backupConfig($path)), [
             '--filename' => $filename,
             '--timeout' => (int) $this->option('timeout'),
             '--disable-notifications' => true,
-            '--config' => 'tk-backups.laravel-backups', // Use the config defined by this package
         ]);
-
         $this->line('spatie backup:run finished');
         $this->newLine();
 
         return $exitCode;
+    }
+
+    private function backupConfig(string $path): SpatieConfig
+    {
+        $config = config('backup'); // già completo: il provider spatie fa merge dei default
+
+        $config['backup'] = array_replace_recursive(
+            $config['backup'],
+            config('tk-backups.laravel-backups.backup', []),
+        );
+
+        // equivalente di --destination-path (solo v10): il nome È la cartella
+        $config['backup']['name'] = $path;
+
+        return SpatieConfig::fromArray($config);
     }
 }

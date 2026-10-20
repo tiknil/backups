@@ -52,28 +52,32 @@ class BackupRestore extends Command
         $rclone = new Rclone($backup, $target);
 
         $this->line("Checking backup for {$scope}");
-        $diff = $rclone->check($backupPath, $folder);
+
+        $same = 0;
+        $diff = $rclone->check(
+            $backupPath,
+            $folder,
+            onIdentical: function () use (&$same): void {
+                $same++;
+            },
+        );
 
         $restore = array_values(array_filter(
             $diff,
             fn (array $c): bool => in_array($c['status'], ['+', '*'], true),
-        ));
-        $same = array_values(array_filter(
-            $diff,
-            fn (array $c): bool => $c['status'] === '=',
         ));
         $extra = array_values(array_filter(
             $diff,
             fn (array $c): bool => $c['status'] === '-',
         ));
 
-        if ($restore === [] && $same === []) {
+        if ($restore === [] && $same === 0) {
             $this->error("No backup found at {$backupDisk}:{$backupPath}.");
 
             return self::FAILURE;
         }
 
-        $this->line('To restore: '.count($restore).', unchanged: '.count($same).', only on disk: '.count($extra).'.');
+        $this->line('To restore: '.count($restore).', unchanged: '.$same.', only on disk: '.count($extra).'.');
 
         foreach (array_slice($restore, 0, 50) as $change) {
             $this->line("  + {$change['path']}");

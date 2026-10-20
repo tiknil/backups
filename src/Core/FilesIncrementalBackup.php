@@ -7,10 +7,6 @@ use Tiknil\Backups\Core\Endpoints\EndpointFactory;
 
 class FilesIncrementalBackup
 {
-    private const DELETED_TAG = 'backup-deleted-at';
-
-    private const DELETED_RETENTION_DAYS = 30;
-
     /**
      * @param  array<int, array{disk: string, folder?: string}>  $sources
      */
@@ -18,11 +14,13 @@ class FilesIncrementalBackup
         private readonly array $sources,
         private readonly string $destinationDisk,
         private readonly string $prefix,
+        private readonly int $concurrency = 8,
     ) {}
 
     public function execute(Command $command): int
     {
         $destination = S3Disk::fromDiskName($this->destinationDisk);
+        $lock = new ObjectLock($destination, $this->concurrency);
         $destinationEndpoint = EndpointFactory::make($this->destinationDisk)
             ?? throw new \RuntimeException(
                 "Destination disk '{$this->destinationDisk}' must use the 's3' or 'local' driver."
@@ -51,14 +49,36 @@ class FilesIncrementalBackup
             $scope = trim($diskName.($folder !== '' ? '/'.$folder : ''), '/');
 
             $command->info("Checking {$scope} for diffs");
-            $diff = $rclone->check($folder, $destinationPath);
+
+            // Identical files are handled as they stream in: with millions of
+            // them, keeping the list around would exhaust memory for nothing.
+            $diff = $rclone->check(
+                $folder,
+                $destinationPath,
+                onIdentical: function (array $change): void {
+                    // POTENTIAL ISSUE:
+                    // A deleted (but still in the retention period) file could be restored.
+                    // In that case, the legalHold tag should be applied.
+                    // However, checking the presente on the DELETED tag each time is very time consuming in large buckets,
+                    // because each file would trigger a request to s3 checking for the tag.
+                    //
+                    // We decide to ignore this use case for performance reason and ignore the identical files.
+                    // Note that, in order for the restored file to be identical, the updated_at timestamp and the size should be equal as well.
+                    // Even in that case, after the retention period the file would be deleted and, the day after, reupload as a new file and marked with the legal hold
+
+                    /*
+                    $key = $destination->fullPath($destinationPath, $change['path']);
+                    if ($destination->tag($key, ObjectLock::DELETED_TAG) !== null) {
+                        $destination->legalHold($key, true);
+                        $destination->setTag($key, ObjectLock::DELETED_TAG, null);
+                    }
+                    */
+                },
+            );
+
             $changed = array_values(array_filter(
                 $diff,
                 fn (array $change): bool => in_array($change['status'], ['+', '*'], true),
-            ));
-            $unchanged = array_values(array_filter(
-                $diff,
-                fn (array $change): bool => $change['status'] === '=',
             ));
             $deleted = array_values(array_filter(
                 $diff,
@@ -72,30 +92,23 @@ class FilesIncrementalBackup
                     fn (string $line) => $command->line('[rclone] '.$line),
                 );
 
-                foreach ($changed as $change) {
-                    $key = $destination->fullPath($destinationPath, $change['path']);
-                    $destination->legalHold($key, true);
-                    $destination->setTag($key, self::DELETED_TAG, null);
-                    $totalChanged++;
-                }
+                // Legal holds and tags are applied a few objects at a time.
+                $lock->protect(
+                    $this->objectKeys($changed, $destination, $destinationPath),
+                    onDone: function () use (&$totalChanged): void {
+                        $totalChanged++;
+                    },
+                );
             }
 
-            foreach ($unchanged as $change) {
-                $key = $destination->fullPath($destinationPath, $change['path']);
-
-                if ($destination->tag($key, self::DELETED_TAG) !== null) {
-                    $destination->legalHold($key, true);
-                    $destination->setTag($key, self::DELETED_TAG, null);
-                }
-            }
-
-            foreach ($deleted as $change) {
-                $key = $destination->fullPath($destinationPath, $change['path']);
-                $archivePath = trim($destinationPath.'/'.$change['path'], '/');
-
-                $command->line("  ⊘ {$archivePath}");
-                $this->expireDeletedFile($destination, $key);
-                $totalDeleted++;
+            if ($deleted !== []) {
+                $lock->expire(
+                    $this->objectKeys($deleted, $destination, $destinationPath),
+                    onDone: function (string $key) use ($command, &$totalDeleted): void {
+                        $command->line("  ⊘ {$key}");
+                        $totalDeleted++;
+                    },
+                );
             }
         }
 
@@ -116,17 +129,18 @@ class FilesIncrementalBackup
         return $totalChanged;
     }
 
-    private function expireDeletedFile(S3Disk $disk, string $key): void
+    /**
+     * Map diff entries to their absolute object keys.
+     *
+     * Yields lazily so a mass deletion never materializes a second array.
+     *
+     * @param  array<int, array{status: string, path: string}>  $changes
+     * @return \Generator<int, string>
+     */
+    private function objectKeys(array $changes, S3Disk $disk, string $destinationPath): \Generator
     {
-        if ($disk->tag($key, self::DELETED_TAG) === null) {
-            // Set and verify retention before releasing the hold. If either
-            // operation fails, the exception leaves the legal hold untouched.
-            $disk->retainFor($key, self::DELETED_RETENTION_DAYS);
-            $disk->setTag($key, self::DELETED_TAG, now('UTC')->toIso8601String());
+        foreach ($changes as $change) {
+            yield $disk->fullPath($destinationPath, $change['path']);
         }
-
-        // If releasing the hold fails, the marker remains and the next run
-        // retries only this step without extending the retention period.
-        $disk->legalHold($key, false);
     }
 }

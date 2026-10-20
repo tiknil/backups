@@ -32,17 +32,23 @@ class Rclone
     }
 
     /**
-     * Compare source and destination, returning rclone's combined output.
+     * Compare source and destination, streaming rclone's combined output.
      *
      * Status codes: '=' identical, '+' only in source, '*' different,
      * '-' only in destination, '!' error.
      *
-     * @return array<int, array{status: string, path: string}>
+     * Output is parsed while the process runs, so the raw stream is never held
+     * in memory. Identical entries are dropped after being handed to
+     * `$onIdentical`: with millions of unchanged files, retaining them would
+     * defeat the purpose.
+     *
+     * @param  callable(array{status: string, path: string}): void|null  $onIdentical  Called for each identical entry, as soon as it is read.
+     * @return array<int, array{status: string, path: string}> Entries that differ, errors included.
      */
     public function check(
         string $sourcePath = '',
         string $destinationPath = '',
-        bool $sizeOnly = true,
+        ?callable $onIdentical = null,
     ): array {
         $this->source->prepare();
         $this->destination->prepare();
@@ -54,21 +60,39 @@ class Rclone
             '--combined', '-',
         ];
 
-        if ($sizeOnly) {
-            $args[] = '--size-only';
+        $stream = new ProcessLines($this->process($args));
+
+        $changes = [];
+        $hasErrors = false;
+
+        foreach ($stream->lines() as [$type, $line]) {
+            if ($type !== Process::OUT) {
+                continue;
+            }
+
+            if (preg_match('/^([=+*!-])\s+(.+)$/', $line, $m) !== 1) {
+                continue;
+            }
+
+            $change = ['status' => $m[1], 'path' => $m[2]];
+
+            if ($change['status'] === '=') {
+                if ($onIdentical !== null) {
+                    $onIdentical($change);
+                }
+
+                continue;
+            }
+
+            $hasErrors = $hasErrors || $change['status'] === '!';
+
+            $changes[] = $change;
         }
 
-        $process = $this->process($args);
-        $process->run();
+        $exitCode = $stream->exitCode();
 
-        $changes = $this->parseCombined($process->getOutput()."\n".$process->getErrorOutput());
-
-        $hasErrors = collect($changes)->contains(
-            fn (array $change): bool => $change['status'] === '!',
-        );
-
-        if ($hasErrors || $process->getExitCode() > 1) {
-            throw new \RuntimeException('rclone check failed: '.$process->getErrorOutput());
+        if ($hasErrors || $exitCode > 1) {
+            throw new \RuntimeException('rclone check failed: '.$stream->errorTail());
         }
 
         return $changes;
@@ -82,8 +106,7 @@ class Rclone
     public function copy(
         string $sourcePath = '',
         string $destinationPath = '',
-        ?callable $onLine = null,
-        bool $sizeOnly = true,
+        ?callable $onLine = null
     ): void {
         $this->source->prepare();
         $this->destination->prepare();
@@ -94,40 +117,21 @@ class Rclone
             $this->destination->path($destinationPath),
         ];
 
-        if ($sizeOnly) {
-            $args[] = '--size-only';
-        }
-
         $args[] = '--progress';
         $args[] = '--stats-one-line-date';
+        $args[] = '--transfers=16';
 
-        $process = $this->process($args);
+        $stream = new ProcessLines($this->process($args));
 
-        $process->run(function (string $type, string $buffer) use ($onLine): void {
-            $line = trim($buffer);
-
-            if ($line !== '' && $onLine !== null) {
+        $exitCode = $stream->run(function (string $line) use ($onLine): void {
+            if ($onLine !== null) {
                 $onLine($line);
             }
         });
 
-        if (!$process->isSuccessful()) {
-            throw new \RuntimeException('rclone copy failed: '.$process->getErrorOutput());
+        if ($exitCode !== 0) {
+            throw new \RuntimeException('rclone copy failed: '.$stream->errorTail());
         }
-    }
-
-    /** @return array<int, array{status: string, path: string}> */
-    private function parseCombined(string $output): array
-    {
-        $changes = [];
-
-        foreach (preg_split('/\R/', trim($output)) as $line) {
-            if (preg_match('/^([=+*!-])\s+(.+)$/', trim($line), $m) === 1) {
-                $changes[] = ['status' => $m[1], 'path' => $m[2]];
-            }
-        }
-
-        return $changes;
     }
 
     /** Resolve a disk name to the matching rclone endpoint. */

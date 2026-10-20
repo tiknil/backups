@@ -3,6 +3,7 @@
 namespace Tiknil\Backups\Core;
 
 use Aws\S3\S3Client;
+use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Support\Carbon;
 
 /**
@@ -158,17 +159,14 @@ class S3Disk
         ]);
     }
 
-    public function delete(string $key): void
-    {
-        $this->client->deleteObject([
-            'Bucket' => $this->bucket,
-            'Key' => $key,
-        ]);
-    }
-
     public function legalHold(string $key, bool $enabled): void
     {
-        $this->client->putObjectLegalHold([
+        $this->legalHoldAsync($key, $enabled)->wait();
+    }
+
+    public function legalHoldAsync(string $key, bool $enabled): PromiseInterface
+    {
+        return $this->client->putObjectLegalHoldAsync([
             'Bucket' => $this->bucket,
             'Key' => $key,
             'LegalHold' => ['Status' => $enabled ? 'ON' : 'OFF'],
@@ -178,68 +176,89 @@ class S3Disk
     /** Apply retention without shortening an existing period. */
     public function retainFor(string $key, int $days): void
     {
+        $this->retainForAsync($key, $days)->wait();
+    }
+
+    /** @see retainFor() */
+    public function retainForAsync(string $key, int $days): PromiseInterface
+    {
         $until = now('UTC')->addDays($days);
-        $head = $this->client->headObject([
+
+        return $this->client->headObjectAsync([
             'Bucket' => $this->bucket,
             'Key' => $key,
-        ]);
-        $existingUntil = $head['ObjectLockRetainUntilDate'] ?? null;
+        ])->then(function ($head) use ($key, $until): ?PromiseInterface {
+            $existingUntil = $head['ObjectLockRetainUntilDate'] ?? null;
 
-        if ($existingUntil !== null && Carbon::parse($existingUntil)->greaterThanOrEqualTo($until)) {
-            return;
-        }
+            if ($existingUntil !== null && Carbon::parse($existingUntil)->greaterThanOrEqualTo($until)) {
+                return null;
+            }
 
-        $this->client->putObjectRetention([
-            'Bucket' => $this->bucket,
-            'Key' => $key,
-            'Retention' => [
-                'Mode' => self::RETENTION_COMPLIANCE,
-                'RetainUntilDate' => $until->format('Y-m-d\\TH:i:s\\Z'),
-            ],
-        ]);
+            return $this->client->putObjectRetentionAsync([
+                'Bucket' => $this->bucket,
+                'Key' => $key,
+                'Retention' => [
+                    'Mode' => self::RETENTION_COMPLIANCE,
+                    'RetainUntilDate' => $until->format('Y-m-d\\TH:i:s\\Z'),
+                ],
+            ]);
+        });
     }
 
     /** Read one object tag, returning null when it is absent. */
     public function tag(string $key, string $tag): ?string
     {
-        $result = $this->client->getObjectTagging([
+        return $this->tagAsync($key, $tag)->wait();
+    }
+
+    /** @see tag() */
+    public function tagAsync(string $key, string $tag): PromiseInterface
+    {
+        return $this->client->getObjectTaggingAsync([
             'Bucket' => $this->bucket,
             'Key' => $key,
-        ]);
-
-        foreach ($result['TagSet'] ?? [] as $item) {
-            if ($item['Key'] === $tag) {
-                return $item['Value'];
+        ])->then(function ($result) use ($tag): ?string {
+            foreach ($result['TagSet'] ?? [] as $item) {
+                if ($item['Key'] === $tag) {
+                    return $item['Value'];
+                }
             }
-        }
 
-        return null;
+            return null;
+        });
     }
 
     /** Add, update, or remove a tag while preserving all other tags. */
     public function setTag(string $key, string $tag, ?string $value): void
     {
-        $result = $this->client->getObjectTagging([
+        $this->setTagAsync($key, $tag, $value)->wait();
+    }
+
+    /** @see setTag() */
+    public function setTagAsync(string $key, string $tag, ?string $value): PromiseInterface
+    {
+        return $this->client->getObjectTaggingAsync([
             'Bucket' => $this->bucket,
             'Key' => $key,
-        ]);
-        $tags = [];
+        ])->then(function ($result) use ($key, $tag, $value): PromiseInterface {
+            $tags = [];
 
-        foreach ($result['TagSet'] ?? [] as $item) {
-            if ($item['Key'] !== $tag) {
-                $tags[] = $item;
+            foreach ($result['TagSet'] ?? [] as $item) {
+                if ($item['Key'] !== $tag) {
+                    $tags[] = $item;
+                }
             }
-        }
 
-        if ($value !== null) {
-            $tags[] = ['Key' => $tag, 'Value' => $value];
-        }
+            if ($value !== null) {
+                $tags[] = ['Key' => $tag, 'Value' => $value];
+            }
 
-        $this->client->putObjectTagging([
-            'Bucket' => $this->bucket,
-            'Key' => $key,
-            'Tagging' => ['TagSet' => $tags],
-        ]);
+            return $this->client->putObjectTaggingAsync([
+                'Bucket' => $this->bucket,
+                'Key' => $key,
+                'Tagging' => ['TagSet' => $tags],
+            ]);
+        });
     }
 
     public function applyRetention(

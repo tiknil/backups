@@ -29,6 +29,11 @@ return [
         'yearly' => 400,
     ],
 
+    // Number of parallel S3 requests
+    'concurrency' => (int) env('BACKUP_CONCURRENCY', 8),
+    // Number of rclone parallel transfers
+    'transfer_concurrency' => (int) env('BACKUP_TRANSFER_CONCURRENCY', 16),
+
     'file_sources' => [
         /*
          * Each entry is a source disk whose files will be incrementally
@@ -47,12 +52,8 @@ return [
     // La configurazione di spatie/laravel-backup usata per creare lo .zip giornaliero
     'laravel-backups' => [
         'backup' => [
-
-            /*
-            * The name of this application. You can use this name to monitor
-            * the backups.
-            */
-            'name' => env('APP_NAME').'-backups',
+            // Verrà ignorato e forzato a "daily"
+            // 'name' => env('APP_NAME').'-backups',
 
             'source' => [
 
