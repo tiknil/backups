@@ -1,0 +1,69 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    name: PHP ${{ matrix.php }} · Laravel ${{ matrix.laravel }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # orchestra/testbench 8 = Laravel 10, 9 = 11, 10 = 12, 11 = 13.
+        # The spatie/laravel-backup major is resolved from the Laravel version.
+        include:
+          - { php: '8.2', laravel: '10', testbench: '^8.0' }
+          - { php: '8.2', laravel: '11', testbench: '^9.0' }
+          - { php: '8.2', laravel: '12', testbench: '^10.0' }
+          - { php: '8.3', laravel: '10', testbench: '^8.0' }
+          - { php: '8.3', laravel: '11', testbench: '^9.0' }
+          - { php: '8.3', laravel: '12', testbench: '^10.0' }
+          - { php: '8.3', laravel: '13', testbench: '^11.0' }
+          - { php: '8.4', laravel: '11', testbench: '^9.0' }
+          - { php: '8.4', laravel: '12', testbench: '^10.0' }
+          - { php: '8.4', laravel: '13', testbench: '^11.0' }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: zip, pdo_sqlite
+          coverage: none
+
+      - name: Cache Composer downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer
+          key: composer-${{ matrix.php }}-${{ matrix.laravel }}-${{ hashFiles('composer.json') }}
+          restore-keys: |
+            composer-${{ matrix.php }}-${{ matrix.laravel }}-
+            composer-
+
+      - name: Install the Laravel version under test
+        run: |
+          composer require --dev --no-update --no-interaction "orchestra/testbench:${{ matrix.testbench }}"
+          composer update --prefer-dist --no-interaction --no-progress --with-all-dependencies
+
+      - name: Show resolved versions
+        run: |
+          composer show --direct \
+            | grep -E 'laravel/framework|orchestra/testbench|spatie/laravel-backup|pestphp/pest' \
+            || true
+
+      - name: Run tests
+        run: vendor/bin/pest --colors=always

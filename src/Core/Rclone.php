@@ -20,14 +20,22 @@ class Rclone
     public function __construct(
         private readonly RcloneEndpoint $source,
         private readonly RcloneEndpoint $destination,
+        private readonly ?string $binary = null,
+        private readonly ?int $transfers = null,
     ) {}
 
     /** Build an instance from two configured filesystem disk names. */
-    public static function between(string $sourceDisk, string $destinationDisk): self
-    {
+    public static function between(
+        string $sourceDisk,
+        string $destinationDisk,
+        ?string $binary = null,
+        ?int $transfers = null,
+    ): self {
         return new self(
             self::endpoint($sourceDisk),
             self::endpoint($destinationDisk),
+            $binary,
+            $transfers,
         );
     }
 
@@ -113,7 +121,7 @@ class Rclone
 
         $args[] = '--progress';
         $args[] = '--stats-one-line-date';
-        $args[] = '--transfers=16';
+        $args[] = '--transfers='.$this->transfers();
 
         $stream = new ProcessLines($this->process($args));
 
@@ -129,12 +137,12 @@ class Rclone
     }
 
     /** Check that rclone can resolve the disk and reach it with its credentials. */
-    public static function probe(string $diskName): void
+    public static function probe(string $diskName, ?string $binary = null): void
     {
         $endpoint = self::endpoint($diskName);
 
         $process = new Process(
-            [self::BIN, 'lsd', $endpoint->path(), '--retries', '1'],
+            [$binary ?? self::BIN, 'lsd', $endpoint->path(), '--retries', '1'],
             null,
             RcloneConfig::env() + $endpoint->env(),
         );
@@ -152,12 +160,20 @@ class Rclone
             );
     }
 
+    /** Parallel transfers: explicit value, else the package config. */
+    private function transfers(): int
+    {
+        $transfers = $this->transfers ?? (int) config('tk-backups.transfer_concurrency', 16);
+
+        return max(1, $transfers);
+    }
+
     /** @param array<int, string> $args */
     private function process(array $args): Process
     {
         $env = RcloneConfig::env() + $this->source->env() + $this->destination->env();
 
-        $process = new Process([self::BIN, ...$args], null, $env);
+        $process = new Process([$this->binary ?? self::BIN, ...$args], null, $env);
         $process->setTimeout(null);
 
         return $process;
