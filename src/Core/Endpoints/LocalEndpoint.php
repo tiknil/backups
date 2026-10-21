@@ -38,9 +38,10 @@ class LocalEndpoint implements RcloneEndpoint
         return 'local';
     }
 
-    public function prepare(): void
+    public function env(): array
     {
-        // Local disks need no remote.
+        // Local paths need no remote.
+        return [];
     }
 
     public function path(string $path = ''): string

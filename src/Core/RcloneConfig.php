@@ -5,8 +5,8 @@ namespace Tiknil\Backups\Core;
 /**
  * Location of an isolated rclone configuration file for this process.
  *
- * Remotes are written here instead of the user's ~/.config/rclone/rclone.conf,
- * so credentials are never persisted beyond the current run.
+ * Remotes are declared through environment variables, so this file stays empty:
+ * it only keeps rclone from reading (and writing) ~/.config/rclone/rclone.conf.
  */
 final class RcloneConfig
 {

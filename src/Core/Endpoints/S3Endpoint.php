@@ -2,21 +2,22 @@
 
 namespace Tiknil\Backups\Core\Endpoints;
 
-use Symfony\Component\Process\Exception\ProcessFailedException;
-use Symfony\Component\Process\Process;
-use Tiknil\Backups\Core\RcloneConfig;
 use Tiknil\Backups\Core\S3Disk;
 
 /**
- * Exposes an {@see S3Disk} to rclone through a generated s3 remote.
+ * Exposes an {@see S3Disk} to rclone through a remote declared by environment
+ * variables.
+ *
+ * Declaring the remote with RCLONE_CONFIG_<NAME>_<KEY> works on every rclone
+ * version: `rclone config create/update --non-interactive` only exists from
+ * v1.56, and before that the command prompts for the missing options.
+ *
+ * Remote names only use [a-z0-9_]: up to v1.56 rclone turns '-' into '_' when
+ * building the variable name, from v1.57 it leaves it as is, so a hyphen makes
+ * the variable impossible to set from a shell.
  */
 class S3Endpoint implements RcloneEndpoint
 {
-    private const BIN = 'rclone';
-
-    /** Remotes configured in this process, keyed by remote name. */
-    private static array $configured = [];
-
     public function __construct(
         private readonly S3Disk $disk,
     ) {}
@@ -26,39 +27,29 @@ class S3Endpoint implements RcloneEndpoint
         return 's3';
     }
 
-    public function prepare(): void
+    public function env(): array
     {
-        $name = $this->remoteName();
+        $prefix = 'RCLONE_CONFIG_'.self::envName($this->remoteName()).'_';
 
-        if (isset(self::$configured[$name])) {
-            return;
+        $options = array_filter([
+            'TYPE' => 's3',
+            'PROVIDER' => 'Other',
+            'ENV_AUTH' => 'false',
+            'ACCESS_KEY_ID' => $this->disk->config['key'] ?? '',
+            'SECRET_ACCESS_KEY' => $this->disk->config['secret'] ?? '',
+            'REGION' => $this->disk->config['region'] ?? '',
+            'ENDPOINT' => $this->disk->config['endpoint'] ?? '',
+            'SESSION_TOKEN' => $this->disk->config['token'] ?? '',
+            'FORCE_PATH_STYLE' => empty($this->disk->config['use_path_style_endpoint']) ? '' : 'true',
+        ], fn (string $value): bool => $value !== '');
+
+        $env = [];
+
+        foreach ($options as $key => $value) {
+            $env[$prefix.$key] = $value;
         }
 
-        self::$configured[$name] = true;
-
-        $options = [
-            'provider' => 'Other',
-            'env_auth' => 'false',
-            'access_key_id' => $this->disk->config['key'] ?? '',
-            'secret_access_key' => $this->disk->config['secret'] ?? '',
-            'region' => $this->disk->config['region'] ?? '',
-            'endpoint' => $this->disk->config['endpoint'] ?? '',
-        ];
-
-        if (!empty($this->disk->config['token'])) {
-            $options['session_token'] = $this->disk->config['token'];
-        }
-
-        if (!empty($this->disk->config['use_path_style_endpoint'])) {
-            $options['force_path_style'] = 'true';
-        }
-
-        try {
-            $this->writeRemote(['create', $name, 's3'], $options);
-        } catch (ProcessFailedException) {
-            // Remote already exists; update it instead.
-            $this->writeRemote(['update', $name], $options);
-        }
+        return $env;
     }
 
     public function path(string $path = ''): string
@@ -78,25 +69,17 @@ class S3Endpoint implements RcloneEndpoint
     private function remoteName(): string
     {
         if ($this->disk->name === null) {
-            return 'tk-'.substr(sha1($this->disk->bucket.'|'.($this->disk->config['endpoint'] ?? '')), 0, 12);
+            return 'tk_'.substr(sha1($this->disk->bucket.'|'.($this->disk->config['endpoint'] ?? '')), 0, 12);
         }
 
-        $slug = trim(preg_replace('/[^A-Za-z0-9]+/', '-', $this->disk->name), '-');
+        $slug = trim(preg_replace('/[^A-Za-z0-9]+/', '_', $this->disk->name), '_');
 
-        return 'tk-'.$slug.'-'.substr(sha1($this->disk->name), 0, 6);
+        return 'tk_'.$slug.'_'.substr(sha1($this->disk->name), 0, 6);
     }
 
-    /** @param array<string, string> $options */
-    private function writeRemote(array $command, array $options): void
+    /** Mirror rclone's ConfigToEnv(): the remote name is just upper cased. */
+    private static function envName(string $remote): string
     {
-        $args = [self::BIN, 'config', ...$command, '--non-interactive'];
-
-        foreach ($options as $key => $value) {
-            $args[] = "{$key}={$value}";
-        }
-
-        $process = new Process($args, null, RcloneConfig::env());
-        $process->setTimeout(30);
-        $process->mustRun();
+        return strtoupper($remote);
     }
 }

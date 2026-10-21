@@ -5,6 +5,7 @@ namespace Tiknil\Backups\Commands;
 use Illuminate\Console\Command;
 use Symfony\Component\Process\Process;
 use Tiknil\Backups\Core\Endpoints\EndpointFactory;
+use Tiknil\Backups\Core\Rclone;
 use Tiknil\Backups\Core\S3Disk;
 
 /**
@@ -21,6 +22,8 @@ class BackupChecks extends Command
     protected $description = 'Verify that everything is ready to run the backups';
 
     private bool $failed = false;
+
+    private bool $rcloneAvailable = false;
 
     public function handle(): int
     {
@@ -100,6 +103,7 @@ class BackupChecks extends Command
         $this->line('rclone');
 
         if ($this->binaryAvailable(['rclone', 'version'])) {
+            $this->rcloneAvailable = true;
             $this->pass('rclone is available.');
 
             return;
@@ -134,15 +138,16 @@ class BackupChecks extends Command
             }
 
             try {
-                $endpoint = EndpointFactory::make($diskName);
-
-                if ($endpoint === null) {
+                if (EndpointFactory::make($diskName) === null) {
                     $this->failMessage("Disk '{$diskName}' uses an unsupported driver for file backup.");
 
                     continue;
                 }
 
-                $endpoint->prepare();
+                if ($this->rcloneAvailable) {
+                    Rclone::probe($diskName);
+                }
+
                 $this->pass("File source '{$diskName}' is configured.");
             } catch (\Throwable $e) {
                 $this->failMessage("File source '{$diskName}' is invalid: {$e->getMessage()}");

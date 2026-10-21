@@ -10,7 +10,7 @@ use Tiknil\Backups\Core\Endpoints\RcloneEndpoint;
  * Thin wrapper around the rclone CLI, bound to a source and a destination
  * {@see RcloneEndpoint}.
  *
- * Callers only deal with paths relative to each disk root; remote provisioning
+ * Callers only deal with paths relative to each disk root; remote declaration
  * and path syntax stay inside the endpoints.
  */
 class Rclone
@@ -50,9 +50,6 @@ class Rclone
         string $destinationPath = '',
         ?callable $onIdentical = null,
     ): array {
-        $this->source->prepare();
-        $this->destination->prepare();
-
         $args = [
             'check',
             $this->source->path($sourcePath),
@@ -108,9 +105,6 @@ class Rclone
         string $destinationPath = '',
         ?callable $onLine = null
     ): void {
-        $this->source->prepare();
-        $this->destination->prepare();
-
         $args = [
             'copy',
             $this->source->path($sourcePath),
@@ -134,6 +128,21 @@ class Rclone
         }
     }
 
+    /** Check that rclone can resolve the disk and reach it with its credentials. */
+    public static function probe(string $diskName): void
+    {
+        $endpoint = self::endpoint($diskName);
+
+        $process = new Process(
+            [self::BIN, 'lsd', $endpoint->path(), '--retries', '1'],
+            null,
+            RcloneConfig::env() + $endpoint->env(),
+        );
+
+        $process->setTimeout(60);
+        $process->mustRun();
+    }
+
     /** Resolve a disk name to the matching rclone endpoint. */
     private static function endpoint(string $diskName): RcloneEndpoint
     {
@@ -146,7 +155,9 @@ class Rclone
     /** @param array<int, string> $args */
     private function process(array $args): Process
     {
-        $process = new Process([self::BIN, ...$args], null, RcloneConfig::env());
+        $env = RcloneConfig::env() + $this->source->env() + $this->destination->env();
+
+        $process = new Process([self::BIN, ...$args], null, $env);
         $process->setTimeout(null);
 
         return $process;
