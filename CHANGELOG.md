@@ -1,5 +1,9 @@
 # Changelog
 
+### v0.4.1
+
+- Fix per supporto a rclone < 1.60
+
 ### v0.4.0
 
 - Implementato parallelismo richieste s3
