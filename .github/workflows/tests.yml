@@ -55,6 +55,13 @@ jobs:
             composer-
 
       - name: Install the Laravel version under test
+        env:
+          # Laravel 10 and 11 are EOL: their last releases carry unpatched
+          # advisories, and Composer >= 2.10 refuses to install them. The
+          # matrix exists to prove compatibility, so blocking is turned off
+          # (and the post-install audit skipped) on purpose.
+          COMPOSER_NO_BLOCKING: '1'
+          COMPOSER_NO_AUDIT: '1'
         run: |
           composer require --dev --no-update --no-interaction "orchestra/testbench:${{ matrix.testbench }}"
           composer update --prefer-dist --no-interaction --no-progress --with-all-dependencies
