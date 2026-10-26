@@ -159,6 +159,23 @@ class S3Disk
         ]);
     }
 
+    /** Whether the object is currently under legal hold. */
+    public function hasLegalHold(string $key): bool
+    {
+        return $this->hasLegalHoldAsync($key)->wait();
+    }
+
+    /** @see hasLegalHold() */
+    public function hasLegalHoldAsync(string $key): PromiseInterface
+    {
+        return $this->client->headObjectAsync([
+            'Bucket' => $this->bucket,
+            'Key' => $key,
+        ])->then(
+            fn ($head): bool => ($head['ObjectLockLegalHoldStatus'] ?? null) === 'ON',
+        );
+    }
+
     public function legalHold(string $key, bool $enabled): void
     {
         $this->legalHoldAsync($key, $enabled)->wait();

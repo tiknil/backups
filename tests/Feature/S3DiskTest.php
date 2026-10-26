@@ -184,3 +184,17 @@ it('toggles the legal hold', function (bool $enabled, string $status) {
     'on' => [true, 'ON'],
     'off' => [false, 'OFF'],
 ]);
+
+it('reads the legal hold status', function (array $head, bool $expected) {
+    [$disk, $s3] = s3Pair(fn (): array => $head);
+
+    expect($disk->hasLegalHold('backups/file.zip'))->toBe($expected)
+        ->and($s3->inputsOf('HeadObject')[0])->toBe([
+            'Bucket' => 'bucket',
+            'Key' => 'backups/file.zip',
+        ]);
+})->with([
+    'on' => [['ObjectLockLegalHoldStatus' => 'ON'], true],
+    'off' => [['ObjectLockLegalHoldStatus' => 'OFF'], false],
+    'missing' => [[], false],
+]);

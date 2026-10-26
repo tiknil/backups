@@ -6,6 +6,7 @@ use Illuminate\Support\ServiceProvider;
 use Tiknil\Backups\Commands\BackupChecks;
 use Tiknil\Backups\Commands\BackupRestore;
 use Tiknil\Backups\Commands\DailyBackup;
+use Tiknil\Backups\Commands\HoldFiles;
 
 class BackupsServiceProvider extends ServiceProvider
 {
@@ -32,6 +33,7 @@ class BackupsServiceProvider extends ServiceProvider
             DailyBackup::class,
             BackupChecks::class,
             BackupRestore::class,
+            HoldFiles::class,
         ]);
     }
 

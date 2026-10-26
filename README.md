@@ -12,6 +12,7 @@ composer require tiknil/backups
 
 - `php artisan backup` — esegue il backup e la promozione a settimanale/mensile/annuale. Supporta `--skip-db` (salta backup spatie e promozione) e `--skip-files` (salta il backup incrementale dei file).
 - `php artisan backup:checks` — verifica che l'ambiente sia pronto e tutto sia configurato correttamente
+- `php artisan backup:hold-files` — riapplica il legal hold ai file già caricati sul bucket ma rimasti sbloccati (es. sincronizzazione iniziale interrotta): confronta ogni sorgente con il bucket via rclone e considera solo i file identici
 - `php artisan backup:restore {disk} {folder?}` — ripristina un disco (ed eventuale sottocartella) dal bucket di backup via rclone (inverso del backup files). Supporta `--dry-run`, `--force`, `--backup-disk=`, `--prefix=`
 
 ## Configurazione
@@ -85,6 +86,10 @@ temporaneo, senza accumulare la lista in RAM. Il report viene rimosso a fine
 operazione, anche in caso di eccezioni; non supporta la ripresa.
 La directory temporanea di PHP (`sys_get_temp_dir()`) deve avere spazio disponibile
 ed essere su disco.
+
+`backup:hold-files` usa lo stesso approccio: i file identici trovati da rclone
+finiscono in un file temporaneo e i legal hold mancanti vengono applicati con un
+numero limitato di richieste S3 concorrenti (`tk-backups.concurrency`).
 
 ## License
 

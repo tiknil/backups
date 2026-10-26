@@ -87,6 +87,33 @@ it('does not shorten the retention of a deleted object', function () {
     expect($s3->names())->not->toContain('PutObjectRetention');
 });
 
+it('applies the legal hold only to the objects that miss it', function () {
+    [$lock, $s3] = lockPair(fn (string $name, array $input): array => match (true) {
+        $name === 'HeadObject' && $input['Key'] === 'backups/locked' => ['ObjectLockLegalHoldStatus' => 'ON'],
+        $name === 'HeadObject' => ['ObjectLockLegalHoldStatus' => 'OFF'],
+        default => [],
+    });
+
+    $done = [];
+    $lock->ensureHold(['backups/locked', 'backups/free'], function (string $key, bool $applied) use (&$done): void {
+        $done[$key] = $applied;
+    });
+
+    expect($s3->callsOf('HeadObject'))->toHaveCount(2)
+        ->and($s3->inputsOf('PutObjectLegalHold'))->toBe([
+            ['Bucket' => 'bucket', 'Key' => 'backups/free', 'LegalHold' => ['Status' => 'ON']],
+        ])
+        ->and($done)->toBe(['backups/locked' => false, 'backups/free' => true]);
+});
+
+it('writes nothing when every object is already locked', function () {
+    [$lock, $s3] = lockPair(fn (): array => ['ObjectLockLegalHoldStatus' => 'ON']);
+
+    $lock->ensureHold(['backups/a', 'backups/b']);
+
+    expect($s3->names())->toBe(['HeadObject', 'HeadObject']);
+});
+
 it('reports every key once, even when some fail', function () {
     [$lock, $s3] = lockPair(function (string $name, array $input) {
         if ($name === 'PutObjectLegalHold' && $input['Key'] === 'backups/bad') {

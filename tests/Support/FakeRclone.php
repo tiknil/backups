@@ -28,8 +28,24 @@ final class FakeRclone
             FILE_APPEND,
         );
 
-        fwrite(STDOUT, @OUT@);
-        fwrite(STDERR, @ERR@);
+        $write = static function ($stream, string $text): void {
+            $offset = 0;
+            $length = strlen($text);
+
+            // A pipe write can be partial: keep writing until the whole text is out.
+            while ($offset < $length) {
+                $written = fwrite($stream, substr($text, $offset));
+
+                if ($written === false || $written === 0) {
+                    break;
+                }
+
+                $offset += $written;
+            }
+        };
+
+        $write(STDOUT, @OUT@);
+        $write(STDERR, @ERR@);
         exit(@EXIT@);
         PHP;
 

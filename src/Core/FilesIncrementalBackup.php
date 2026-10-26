@@ -28,9 +28,18 @@ class FilesIncrementalBackup
         $totalChanged = 0;
         $totalDeleted = 0;
 
-        foreach ($this->sources as $source) {
+        foreach ($this->sources as $config) {
             $command->newLine();
-            $diskName = $source['disk'];
+
+            $source = FileSource::fromConfig((array) $config);
+
+            if ($source === null) {
+                $command->warn('Skipping a file source without a disk name.');
+
+                continue;
+            }
+
+            $diskName = $source->disk;
             $sourceEndpoint = EndpointFactory::make($diskName);
 
             if ($sourceEndpoint === null) {
@@ -40,13 +49,9 @@ class FilesIncrementalBackup
             }
 
             $rclone = new Rclone($sourceEndpoint, $destinationEndpoint);
-            $folder = trim($source['folder'] ?? '', '/');
-            $destinationPath = trim(implode('/', array_filter([
-                $this->prefix,
-                $diskName,
-                $folder,
-            ], fn (string $part): bool => $part !== '')), '/');
-            $scope = trim($diskName.($folder !== '' ? '/'.$folder : ''), '/');
+            $folder = $source->folder;
+            $destinationPath = $source->destinationPath($this->prefix);
+            $scope = $source->scope();
 
             $command->info("Checking {$scope} for diffs");
 

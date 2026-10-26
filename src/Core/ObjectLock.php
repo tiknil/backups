@@ -2,6 +2,7 @@
 
 namespace Tiknil\Backups\Core;
 
+use GuzzleHttp\Promise\Create;
 use GuzzleHttp\Promise\EachPromise;
 use GuzzleHttp\Promise\PromiseInterface;
 use Throwable;
@@ -28,7 +29,7 @@ class ObjectLock
      * Lock changed objects and clear their deletion marker.
      *
      * @param  iterable<string>  $keys  Absolute object keys.
-     * @param  callable(string $key): void|null  $onDone
+     * @param  callable(string $key, mixed $result): void|null  $onDone
      */
     public function protect(iterable $keys, ?callable $onDone = null): void
     {
@@ -41,11 +42,33 @@ class ObjectLock
     }
 
     /**
+     * Apply the legal hold to the objects that are missing it.
+     *
+     * @param  iterable<string>  $keys  Absolute object keys.
+     * @param  callable(string $key, bool $applied): void|null  $onDone
+     */
+    public function ensureHold(iterable $keys, ?callable $onDone = null): void
+    {
+        $this->pool(
+            $keys,
+            fn (string $key): PromiseInterface => $this->disk->hasLegalHoldAsync($key)
+                ->then(function (bool $held) use ($key): PromiseInterface {
+                    if ($held) {
+                        return Create::promiseFor(false);
+                    }
+
+                    return $this->disk->legalHoldAsync($key, true)->then(fn (): bool => true);
+                }),
+            $onDone,
+        );
+    }
+
+    /**
      * Release objects deleted on the source: extend their retention, then drop
      * the legal hold so the lifecycle rule can expire them.
      *
      * @param  iterable<string>  $keys  Absolute object keys.
-     * @param  callable(string $key): void|null  $onDone
+     * @param  callable(string $key, mixed $result): void|null  $onDone
      */
     public function expire(iterable $keys, ?callable $onDone = null): void
     {
@@ -77,7 +100,7 @@ class ObjectLock
      *
      * @param  iterable<string>  $keys
      * @param  callable(string): PromiseInterface  $run
-     * @param  callable(string): void|null  $onDone
+     * @param  callable(string $key, mixed $result): void|null  $onDone
      */
     private function pool(iterable $keys, callable $run, ?callable $onDone): void
     {
@@ -93,7 +116,7 @@ class ObjectLock
             'concurrency' => max(1, $this->concurrency),
             'fulfilled' => function ($value, string $key) use ($onDone): void {
                 if ($onDone !== null) {
-                    $onDone($key);
+                    $onDone($key, $value);
                 }
             },
             'rejected' => function ($reason, string $key) use (&$failures): void {
