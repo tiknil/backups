@@ -1,5 +1,10 @@
 # Changelog
 
+### v0.6.0
+
+- Aggiunto comando `backup:hold-files` per applicare il legal hold a file sottoposti a backup, utile in caso di errore in fase di creazione del backup dei file.
+- Aggiunta configurazione `multipart_cutoff` per la getione dell'upload multipart di file di grandi dimensioni
+
 ### v0.5.1
 
 - Aggiunte opzioni --skip-db e --skip-files al comando di backup
