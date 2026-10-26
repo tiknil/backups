@@ -1,5 +1,9 @@
 # Changelog
 
+### v0.5.1
+
+- Aggiunte opzioni --skip-db e --skip-files al comando di backup
+
 ### v0.5.0
 
 - Report delle differenze storage su disco temporaneo, letti e scritti in streaming.
