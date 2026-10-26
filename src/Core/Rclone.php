@@ -131,6 +131,7 @@ class Rclone
 
         $args[] = '--progress';
         $args[] = '--stats-one-line-date';
+        $args[] = '--s3-upload-cutoff='.config('tk-backups.multipart_cutoff', '5M');
         $args[] = '--transfers='.$this->transfers();
 
         $stream = new ProcessLines($this->process($args));

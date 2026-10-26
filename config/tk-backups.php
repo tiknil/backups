@@ -33,6 +33,9 @@ return [
     'concurrency' => (int) env('BACKUP_CONCURRENCY', 8),
     // Number of rclone parallel transfers
     'transfer_concurrency' => (int) env('BACKUP_TRANSFER_CONCURRENCY', 16),
+    // Cutoff for using multipart request during rclone copies
+    // NB: use 5M for digitalocean spaces sources, otherwise there are checksum issue due to different calc strategies
+    'multipart_cutoff' => env('BACKUP_MULTIPART_CUTOFF', '5M'),
 
     'file_sources' => [
         /*
