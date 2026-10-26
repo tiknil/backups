@@ -139,6 +139,7 @@ it('copies the two paths with progress', function () {
         '/destination/backup/files',
         '--progress',
         '--stats-one-line-date',
+        '--s3-upload-cutoff=5M',
         '--transfers=16',
     ]);
 });
@@ -266,6 +267,7 @@ it('builds both endpoints from the disk names', function () {
         realpath($target),
         '--progress',
         '--stats-one-line-date',
+        '--s3-upload-cutoff=5M',
         '--transfers=16',
     ]);
 });
