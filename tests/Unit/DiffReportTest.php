@@ -31,7 +31,9 @@ it('removes the temporary file when closed or released', function () {
     expect(is_file($path))->toBeTrue();
 
     $report->close();
-    $report->close();
+
+    // Svuoto la cache per il file, altrimenti potrei ottenere risultati "stantiti"
+    clearstatcache(true, $path);
 
     expect(is_file($path))->toBeFalse();
 
