@@ -10,7 +10,7 @@ composer require tiknil/backups
 
 ## Comandi
 
-- `php artisan backup` — esegue il backup e la promozione a settimanale/mensile/annuale.
+- `php artisan backup` — esegue il backup e la promozione a settimanale/mensile/annuale. Supporta `--skip-db` (salta backup spatie e promozione) e `--skip-files` (salta il backup incrementale dei file).
 - `php artisan backup:checks` — verifica che l'ambiente sia pronto e tutto sia configurato correttamente
 - `php artisan backup:restore {disk} {folder?}` — ripristina un disco (ed eventuale sottocartella) dal bucket di backup via rclone (inverso del backup files). Supporta `--dry-run`, `--force`, `--backup-disk=`, `--prefix=`
 

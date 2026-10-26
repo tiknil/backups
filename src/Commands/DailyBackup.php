@@ -27,14 +27,33 @@ use Tiknil\Backups\Core\S3Disk;
  */
 class DailyBackup extends Command
 {
-    protected $signature = 'backup  {--timeout=3600 : Maximum seconds for the spatie backup process}';
+    protected $signature = 'backup
+        {--timeout=3600 : Maximum seconds for the spatie backup process}
+        {--skip-db : Skip the spatie/laravel-backup backup and the daily promotion}
+        {--skip-files : Skip the incremental storage files backup}';
 
     protected $description = 'Daily backup on S3 with Object Lock; auto-promotion to weekly/monthly/yearly and cloud files diff-only backup';
 
     public function handle(): int
     {
-        $now = now('UTC');
+        if (!$this->option('skip-db')) {
+            $exitCode = $this->backupDatabase();
 
+            if ($exitCode !== self::SUCCESS) {
+                return $exitCode;
+            }
+        }
+
+        if (!$this->option('skip-files')) {
+            $this->backupFiles();
+        }
+
+        return self::SUCCESS;
+    }
+
+    private function backupDatabase(): int
+    {
+        $now = now('UTC');
         $s3Disk = S3Disk::fromDiskName(config('tk-backups.destination_disk'));
 
         // ─────────────────────────────────────────────────────────────────
@@ -80,6 +99,11 @@ class DailyBackup extends Command
             $this->info("✓ {$period->name} promoted and locked.");
         }
 
+        return self::SUCCESS;
+    }
+
+    private function backupFiles(): void
+    {
         // ─────────────────────────────────────────────────────────────────
         //  Step 3. Incremental backup of remote files
         // ─────────────────────────────────────────────────────────────────
@@ -94,9 +118,6 @@ class DailyBackup extends Command
 
         $this->newLine();
         $this->info('✓ File backup completed successfully.');
-
-        return self::SUCCESS;
-
     }
 
     private function performLaravelBackup(string $path, string $filename): int
