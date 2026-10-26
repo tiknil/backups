@@ -1,7 +1,7 @@
 {
   "name": "tiknil/backups",
   "description": "Custom backup management",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "keywords": [
     "tiknil",
     "backups"

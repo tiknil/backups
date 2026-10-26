@@ -1,5 +1,10 @@
 # Changelog
 
+### v0.5.0
+
+- Report delle differenze storage su disco temporaneo, letti e scritti in streaming.
+- `Rclone::check()` restituisce un `DiffReport` iterabile anziché un array.
+
 ### v0.4.1
 
 - Fix per supporto a rclone < 1.60
