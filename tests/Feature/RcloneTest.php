@@ -32,7 +32,7 @@ afterEach(function () {
 it('reports only the entries that differ', function () {
     $fake = FakeRclone::create(COMBINED_REPORT."\n");
 
-    expect(rclone($fake)->check())->toBe([
+    expect(iterator_to_array(rclone($fake)->check()))->toBe([
         ['status' => '+', 'path' => 'added.txt'],
         ['status' => '*', 'path' => 'changed.txt'],
         ['status' => '-', 'path' => 'removed.txt'],
@@ -48,38 +48,56 @@ it('hands the identical entries to the callback', function () {
     });
 
     expect($same)->toBe(['a.txt', 'b.txt'])
-        ->and($changes)->toBe([['status' => '+', 'path' => 'c.txt']]);
+        ->and(iterator_to_array($changes))->toBe([['status' => '+', 'path' => 'c.txt']]);
+});
+
+it('writes large checks to disk with bounded memory', function () {
+    $fake = FakeRclone::create(str_repeat("+ added.txt\n- removed.txt\n", 50000));
+    $rclone = rclone($fake);
+    memory_reset_peak_usage();
+    $before = memory_get_usage();
+
+    $report = $rclone->check();
+    $changed = 0;
+    foreach ($report->changed() as $path) {
+        $changed++;
+    }
+
+    expect($report->countChanged())->toBe(50000)
+        ->and($report->countDeleted())->toBe(50000)
+        ->and($changed)->toBe(50000)
+        ->and(memory_get_peak_usage() - $before)->toBeLessThan(12 * 1024 * 1024);
 });
 
 it('returns nothing when everything is identical', function () {
     $fake = FakeRclone::create("= a.txt\n= b.txt\n");
 
-    expect(rclone($fake)->check())->toBe([]);
+    expect(iterator_to_array(rclone($fake)->check()))->toBe([]);
 });
 
 it('tolerates a report without newline at the end', function () {
     $fake = FakeRclone::create('+ last.txt');
 
-    expect(rclone($fake)->check())->toBe([['status' => '+', 'path' => 'last.txt']]);
+    expect(iterator_to_array(rclone($fake)->check()))->toBe([['status' => '+', 'path' => 'last.txt']]);
 });
 
 it('keeps only the last frame of a progress redraw', function () {
     $fake = FakeRclone::create("+ first.txt\r+ second.txt\n");
 
-    expect(rclone($fake)->check())->toBe([['status' => '+', 'path' => 'second.txt']]);
+    expect(iterator_to_array(rclone($fake)->check()))->toBe([['status' => '+', 'path' => 'second.txt']]);
 });
 
 it('ignores lines that are not entries', function () {
     $fake = FakeRclone::create("\n2026/01/01 10:00:00 NOTICE: something\n+ ok.txt\n");
 
-    expect(rclone($fake)->check())->toBe([['status' => '+', 'path' => 'ok.txt']]);
+    expect(iterator_to_array(rclone($fake)->check()))->toBe([['status' => '+', 'path' => 'ok.txt']]);
 });
 
 it('does not fail when rclone reports differences through the exit code', function () {
     // rclone check exits 1 when the trees differ: that is not an error.
     $fake = FakeRclone::create("+ a.txt\n", exitCode: 1);
 
-    expect(rclone($fake)->check())->toBe([['status' => '+', 'path' => 'a.txt']]);
+    expect(iterator_to_array(rclone($fake)->check()))->toBe([['status' => '+', 'path' => 'a.txt']]);
 });
 
 it('fails on an error entry', function () {

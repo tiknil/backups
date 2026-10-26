@@ -62,57 +62,59 @@ class BackupRestore extends Command
             },
         );
 
-        $restore = array_values(array_filter(
-            $diff,
-            fn (array $c): bool => in_array($c['status'], ['+', '*'], true),
-        ));
-        $extra = array_values(array_filter(
-            $diff,
-            fn (array $c): bool => $c['status'] === '-',
-        ));
+        try {
+            $restore = $diff->countChanged();
+            $extra = $diff->countDeleted();
 
-        if ($restore === [] && $same === 0) {
-            $this->error("No backup found at {$backupDisk}:{$backupPath}.");
+            if ($restore === 0 && $same === 0) {
+                $this->error("No backup found at {$backupDisk}:{$backupPath}.");
 
-            return self::FAILURE;
-        }
+                return self::FAILURE;
+            }
 
-        $this->line('To restore: '.count($restore).', unchanged: '.$same.', only on disk: '.count($extra).'.');
+            $this->line('To restore: '.$restore.', unchanged: '.$same.', only on disk: '.$extra.'.');
 
-        foreach (array_slice($restore, 0, 50) as $change) {
-            $this->line("  + {$change['path']}");
-        }
+            foreach ($diff->changed() as $index => $path) {
+                if ($index >= 50) {
+                    break;
+                }
 
-        if (count($restore) > 50) {
-            $this->line('  … and '.(count($restore) - 50).' more.');
-        }
+                $this->line("  + {$path}");
+            }
 
-        if ($restore === []) {
-            $this->info('Nothing to restore.');
+            if ($restore > 50) {
+                $this->line('  … and '.($restore - 50).' more.');
+            }
+
+            if ($restore === 0) {
+                $this->info('Nothing to restore.');
+
+                return self::SUCCESS;
+            }
+
+            if ($this->option('dry-run')) {
+                $this->info('Dry run: nothing copied.');
+
+                return self::SUCCESS;
+            }
+
+            if (!$this->option('force') && !$this->confirm('Restore '.$restore." files to disk '{$scope}'?")) {
+                $this->line('Aborted.');
+
+                return self::SUCCESS;
+            }
+
+            $rclone->copy(
+                $backupPath,
+                $folder,
+                fn (string $line) => $this->line('[rclone] '.$line),
+            );
+
+            $this->info('✓ Restored '.$restore.' files to '.$scope.'.');
 
             return self::SUCCESS;
+        } finally {
+            $diff->close();
         }
-
-        if ($this->option('dry-run')) {
-            $this->info('Dry run: nothing copied.');
-
-            return self::SUCCESS;
-        }
-
-        if (!$this->option('force') && !$this->confirm('Restore '.count($restore)." files to disk '{$scope}'?")) {
-            $this->line('Aborted.');
-
-            return self::SUCCESS;
-        }
-
-        $rclone->copy(
-            $backupPath,
-            $folder,
-            fn (string $line) => $this->line('[rclone] '.$line),
-        );
-
-        $this->info('✓ Restored '.count($restore).' files to '.$scope.'.');
-
-        return self::SUCCESS;
     }
 }

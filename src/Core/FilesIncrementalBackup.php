@@ -76,39 +76,34 @@ class FilesIncrementalBackup
                 },
             );
 
-            $changed = array_values(array_filter(
-                $diff,
-                fn (array $change): bool => in_array($change['status'], ['+', '*'], true),
-            ));
-            $deleted = array_values(array_filter(
-                $diff,
-                fn (array $change): bool => $change['status'] === '-',
-            ));
+            try {
+                if ($diff->countChanged() > 0) {
+                    $rclone->copy(
+                        $folder,
+                        $destinationPath,
+                        fn (string $line) => $command->line('[rclone] '.$line),
+                    );
 
-            if ($changed !== []) {
-                $rclone->copy(
-                    $folder,
-                    $destinationPath,
-                    fn (string $line) => $command->line('[rclone] '.$line),
-                );
+                    // Legal holds and tags are applied a few objects at a time.
+                    $lock->protect(
+                        $this->objectKeys($diff->changed(), $destination, $destinationPath),
+                        onDone: function () use (&$totalChanged): void {
+                            $totalChanged++;
+                        },
+                    );
+                }
 
-                // Legal holds and tags are applied a few objects at a time.
-                $lock->protect(
-                    $this->objectKeys($changed, $destination, $destinationPath),
-                    onDone: function () use (&$totalChanged): void {
-                        $totalChanged++;
-                    },
-                );
-            }
-
-            if ($deleted !== []) {
-                $lock->expire(
-                    $this->objectKeys($deleted, $destination, $destinationPath),
-                    onDone: function (string $key) use ($command, &$totalDeleted): void {
-                        $command->line("  ⊘ {$key}");
-                        $totalDeleted++;
-                    },
-                );
+                if ($diff->countDeleted() > 0) {
+                    $lock->expire(
+                        $this->objectKeys($diff->deleted(), $destination, $destinationPath),
+                        onDone: function (string $key) use ($command, &$totalDeleted): void {
+                            $command->line("  ⊘ {$key}");
+                            $totalDeleted++;
+                        },
+                    );
+                }
+            } finally {
+                $diff->close();
             }
         }
 
@@ -130,17 +125,15 @@ class FilesIncrementalBackup
     }
 
     /**
-     * Map diff entries to their absolute object keys.
+     * Map relative paths to absolute object keys.
      *
-     * Yields lazily so a mass deletion never materializes a second array.
-     *
-     * @param  array<int, array{status: string, path: string}>  $changes
+     * @param  iterable<string>  $paths
      * @return \Generator<int, string>
      */
-    private function objectKeys(array $changes, S3Disk $disk, string $destinationPath): \Generator
+    private function objectKeys(iterable $paths, S3Disk $disk, string $destinationPath): \Generator
     {
-        foreach ($changes as $change) {
-            yield $disk->fullPath($destinationPath, $change['path']);
+        foreach ($paths as $path) {
+            yield $disk->fullPath($destinationPath, $path);
         }
     }
 }

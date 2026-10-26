@@ -80,6 +80,12 @@ La libreria si occupa di:
 - Applicare i tag s3 per la retention dei dati
 - Clonare i percorsi di storage configurati in una sottocartella `files/`
 
+Le differenze dello storage vengono scritte e lette progressivamente in un report
+temporaneo, senza accumulare la lista in RAM. Il report viene rimosso a fine
+operazione, anche in caso di eccezioni; non supporta la ripresa.
+La directory temporanea di PHP (`sys_get_temp_dir()`) deve avere spazio disponibile
+ed essere su disco.
+
 ## License
 
 The MIT License (MIT). Please see [License File](LICENSE.md) for more information.

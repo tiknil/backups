@@ -46,18 +46,17 @@ class Rclone
      * '-' only in destination, '!' error.
      *
      * Output is parsed while the process runs, so the raw stream is never held
-     * in memory. Identical entries are dropped after being handed to
-     * `$onIdentical`: with millions of unchanged files, retaining them would
-     * defeat the purpose.
+     * in memory. Differences are written to a temporary report; identical
+     * entries are dropped after being handed to `$onIdentical`.
      *
      * @param  callable(array{status: string, path: string}): void|null  $onIdentical  Called for each identical entry, as soon as it is read.
-     * @return array<int, array{status: string, path: string}> Entries that differ, errors included.
+     * @return DiffReport Differences, readable after the check succeeds.
      */
     public function check(
         string $sourcePath = '',
         string $destinationPath = '',
         ?callable $onIdentical = null,
-    ): array {
+    ): DiffReport {
         $args = [
             'check',
             $this->source->path($sourcePath),
@@ -67,40 +66,51 @@ class Rclone
 
         $stream = new ProcessLines($this->process($args));
 
-        $changes = [];
+        $changes = new DiffReport;
         $hasErrors = false;
 
-        foreach ($stream->lines() as [$type, $line]) {
-            if ($type !== Process::OUT) {
-                continue;
-            }
-
-            if (preg_match('/^([=+*!-])\s+(.+)$/', $line, $m) !== 1) {
-                continue;
-            }
-
-            $change = ['status' => $m[1], 'path' => $m[2]];
-
-            if ($change['status'] === '=') {
-                if ($onIdentical !== null) {
-                    $onIdentical($change);
+        try {
+            // rclone check espone, file per file, una riga con un carattere iniziale che identifica lo stato di sync del file
+            // = -> file identico
+            // + -> file aggiunto
+            // * -> file modificato
+            // - -> file eliminato
+            foreach ($stream->lines() as [$type, $line]) {
+                if ($type !== Process::OUT) {
+                    continue;
                 }
 
-                continue;
+                if (preg_match('/^([=+*!-])\s+(.+)$/', $line, $m) !== 1) {
+                    continue;
+                }
+
+                $change = ['status' => $m[1], 'path' => $m[2]];
+
+                if ($change['status'] === '=') {
+                    if ($onIdentical !== null) {
+                        $onIdentical($change);
+                    }
+
+                    continue;
+                }
+
+                $hasErrors = $hasErrors || $change['status'] === '!';
+
+                $changes->append($change);
             }
 
-            $hasErrors = $hasErrors || $change['status'] === '!';
+            $exitCode = $stream->exitCode();
 
-            $changes[] = $change;
+            if ($hasErrors || $exitCode > 1) {
+                throw new \RuntimeException('rclone check failed: '.$stream->errorTail());
+            }
+
+            return $changes;
+        } catch (\Throwable $e) {
+            $changes->close();
+
+            throw $e;
         }
-
-        $exitCode = $stream->exitCode();
-
-        if ($hasErrors || $exitCode > 1) {
-            throw new \RuntimeException('rclone check failed: '.$stream->errorTail());
-        }
-
-        return $changes;
     }
 
     /**
