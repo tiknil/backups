@@ -50,18 +50,21 @@ class Rclone
      * entries are dropped after being handed to `$onIdentical`.
      *
      * @param  callable(array{status: string, path: string}): void|null  $onIdentical  Called for each identical entry, as soon as it is read.
+     * @param  array<int, string>  $excludes  rclone patterns to skip, relative to `$sourcePath`.
      * @return DiffReport Differences, readable after the check succeeds.
      */
     public function check(
         string $sourcePath = '',
         string $destinationPath = '',
         ?callable $onIdentical = null,
+        array $excludes = [],
     ): DiffReport {
         $args = [
             'check',
             $this->source->path($sourcePath),
             $this->destination->path($destinationPath),
             '--combined', '-',
+            ...$this->excludeArgs($excludes),
         ];
 
         $stream = new ProcessLines($this->process($args));
@@ -117,16 +120,19 @@ class Rclone
      * Copy new or changed files from source to destination.
      *
      * @param  callable(string): void|null  $onLine  Receives each progress line.
+     * @param  array<int, string>  $excludes  rclone patterns to skip, relative to `$sourcePath`.
      */
     public function copy(
         string $sourcePath = '',
         string $destinationPath = '',
-        ?callable $onLine = null
+        ?callable $onLine = null,
+        array $excludes = [],
     ): void {
         $args = [
             'copy',
             $this->source->path($sourcePath),
             $this->destination->path($destinationPath),
+            ...$this->excludeArgs($excludes),
         ];
 
         $args[] = '--progress';
@@ -177,6 +183,15 @@ class Rclone
         $transfers = $this->transfers ?? (int) config('tk-backups.transfer_concurrency', 16);
 
         return max(1, $transfers);
+    }
+
+    /**
+     * @param  array<int, string>  $patterns
+     * @return array<int, string>
+     */
+    private function excludeArgs(array $patterns): array
+    {
+        return array_map(fn (string $pattern): string => '--exclude='.$pattern, $patterns);
     }
 
     /** @param array<int, string> $args */

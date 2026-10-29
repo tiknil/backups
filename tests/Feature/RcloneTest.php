@@ -128,6 +128,22 @@ it('asks rclone to compare the two paths with a combined report', function () {
     ]);
 });
 
+it('passes the exclude patterns to the check', function () {
+    $fake = FakeRclone::create();
+
+    rclone($fake)->check('files', 'backup/files', excludes: ['*.tmp', '/cache/**']);
+
+    expect($fake->lastArgv())->toBe([
+        'check',
+        '/source/files',
+        '/destination/backup/files',
+        '--combined',
+        '-',
+        '--exclude=*.tmp',
+        '--exclude=/cache/**',
+    ]);
+});
+
 it('copies the two paths with progress', function () {
     $fake = FakeRclone::create();
 
@@ -137,6 +153,23 @@ it('copies the two paths with progress', function () {
         'copy',
         '/source/files',
         '/destination/backup/files',
+        '--progress',
+        '--stats-one-line-date',
+        '--s3-upload-cutoff=5M',
+        '--transfers=16',
+    ]);
+});
+
+it('passes the exclude patterns to the copy', function () {
+    $fake = FakeRclone::create();
+
+    rclone($fake)->copy('files', 'backup/files', excludes: ['*.tmp']);
+
+    expect($fake->lastArgv())->toBe([
+        'copy',
+        '/source/files',
+        '/destination/backup/files',
+        '--exclude=*.tmp',
         '--progress',
         '--stats-one-line-date',
         '--s3-upload-cutoff=5M',

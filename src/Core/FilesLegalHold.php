@@ -26,7 +26,7 @@ use Tiknil\Backups\Core\Endpoints\S3Endpoint;
 class FilesLegalHold
 {
     /**
-     * @param  array<int, array{disk?: string, folder?: string}>  $sources
+     * @param  array<int, array{disk?: string, folder?: string|array<int, string>, exclude?: string|array<int, string>}>  $sources
      */
     public function __construct(
         private readonly array $sources,
@@ -46,19 +46,21 @@ class FilesLegalHold
         foreach ($this->sources as $config) {
             $command->newLine();
 
-            $source = FileSource::fromConfig((array) $config);
+            $sources = FileSource::list((array) $config);
 
-            if ($source === null) {
+            if ($sources === []) {
                 $command->warn('Skipping a file source without a disk name.');
 
                 continue;
             }
 
-            try {
-                $this->hold($source, $destinationEndpoint, $lock, $command);
-            } catch (Throwable $e) {
-                $command->error("{$source->scope()}: {$e->getMessage()}");
-                $success = false;
+            foreach ($sources as $source) {
+                try {
+                    $this->hold($source, $destinationEndpoint, $lock, $command);
+                } catch (Throwable $e) {
+                    $command->error("{$source->scope()}: {$e->getMessage()}");
+                    $success = false;
+                }
             }
         }
 
@@ -102,6 +104,7 @@ class FilesLegalHold
                 onIdentical: function (array $change) use ($identical): void {
                     $identical->append($change['path']);
                 },
+                excludes: $source->excludes,
             );
             $diff->close();
 

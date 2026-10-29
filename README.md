@@ -56,7 +56,14 @@ Pubblica il file di configurazione della libreria:
 php artisan vendor:publish --tag=tk-backups:config
 ```
 
-Sotto la voce `file_sources`, aggiungi eventuali dischi di storage e sottocartelle da sottoporre a backup.
+Sotto la voce `file_sources`, aggiungi eventuali dischi di storage e sottocartelle da sottoporre a backup. `folder` accetta una stringa o una lista di cartelle (ognuna backuppata separatamente) e `exclude` una stringa o una lista di pattern rclone da saltare, relativi alla radice di ogni cartella:
+
+```php
+'file_sources' => [
+    ['disk' => 's3', 'folder' => ['blog', 'docs'], 'exclude' => ['*.tmp', '/cache/**']],
+    ['disk' => 'local', 'folder' => 'uploads'],
+],
+```
 
 Schedula il backup quotidiano, in `routes/console.php`:
 

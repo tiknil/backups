@@ -8,7 +8,7 @@ use Tiknil\Backups\Core\Endpoints\EndpointFactory;
 class FilesIncrementalBackup
 {
     /**
-     * @param  array<int, array{disk: string, folder?: string}>  $sources
+     * @param  array<int, array{disk: string, folder?: string|array<int, string>, exclude?: string|array<int, string>}>  $sources
      */
     public function __construct(
         private readonly array $sources,
@@ -31,15 +31,16 @@ class FilesIncrementalBackup
         foreach ($this->sources as $config) {
             $command->newLine();
 
-            $source = FileSource::fromConfig((array) $config);
+            // Ogni source nel config diventa potenzialmente un'array di effettive sources, se sono indicate più cartelle da includere
+            $sources = FileSource::list((array) $config);
 
-            if ($source === null) {
+            if ($sources === []) {
                 $command->warn('Skipping a file source without a disk name.');
 
                 continue;
             }
 
-            $diskName = $source->disk;
+            $diskName = $sources[0]->disk;
             $sourceEndpoint = EndpointFactory::make($diskName);
 
             if ($sourceEndpoint === null) {
@@ -49,66 +50,11 @@ class FilesIncrementalBackup
             }
 
             $rclone = new Rclone($sourceEndpoint, $destinationEndpoint);
-            $folder = $source->folder;
-            $destinationPath = $source->destinationPath($this->prefix);
-            $scope = $source->scope();
 
-            $command->info("Checking {$scope} for diffs");
-
-            // Identical files are handled as they stream in: with millions of
-            // them, keeping the list around would exhaust memory for nothing.
-            $diff = $rclone->check(
-                $folder,
-                $destinationPath,
-                onIdentical: function (array $change): void {
-                    // POTENTIAL ISSUE:
-                    // A deleted (but still in the retention period) file could be restored.
-                    // In that case, the legalHold tag should be applied.
-                    // However, checking the presente on the DELETED tag each time is very time consuming in large buckets,
-                    // because each file would trigger a request to s3 checking for the tag.
-                    //
-                    // We decide to ignore this use case for performance reason and ignore the identical files.
-                    // Note that, in order for the restored file to be identical, the updated_at timestamp and the size should be equal as well.
-                    // Even in that case, after the retention period the file would be deleted and, the day after, reupload as a new file and marked with the legal hold
-
-                    /*
-                    $key = $destination->fullPath($destinationPath, $change['path']);
-                    if ($destination->tag($key, ObjectLock::DELETED_TAG) !== null) {
-                        $destination->legalHold($key, true);
-                        $destination->setTag($key, ObjectLock::DELETED_TAG, null);
-                    }
-                    */
-                },
-            );
-
-            try {
-                if ($diff->countChanged() > 0) {
-                    $rclone->copy(
-                        $folder,
-                        $destinationPath,
-                        fn (string $line) => $command->line('[rclone] '.$line),
-                    );
-
-                    // Legal holds and tags are applied a few objects at a time.
-                    $lock->protect(
-                        $this->objectKeys($diff->changed(), $destination, $destinationPath),
-                        onDone: function () use (&$totalChanged): void {
-                            $totalChanged++;
-                        },
-                    );
-                }
-
-                if ($diff->countDeleted() > 0) {
-                    $lock->expire(
-                        $this->objectKeys($diff->deleted(), $destination, $destinationPath),
-                        onDone: function (string $key) use ($command, &$totalDeleted): void {
-                            $command->line("  ⊘ {$key}");
-                            $totalDeleted++;
-                        },
-                    );
-                }
-            } finally {
-                $diff->close();
+            foreach ($sources as $source) {
+                ['changed' => $changed, 'deleted' => $deleted] = $this->backupSource($source, $rclone, $destination, $lock, $command);
+                $totalChanged += $changed;
+                $totalDeleted += $deleted;
             }
         }
 
@@ -127,6 +73,83 @@ class FilesIncrementalBackup
         }
 
         return $totalChanged;
+    }
+
+    /** @return array{changed: int, deleted: int} Counts of processed files. */
+    private function backupSource(
+        FileSource $source,
+        Rclone $rclone,
+        S3Disk $destination,
+        ObjectLock $lock,
+        Command $command,
+    ): array {
+        $folder = $source->folder;
+        $destinationPath = $source->destinationPath($this->prefix);
+
+        $command->info("Checking {$source->scope()} for diffs");
+
+        // Identical files are handled as they stream in: with millions of
+        // them, keeping the list around would exhaust memory for nothing.
+        $diff = $rclone->check(
+            $folder,
+            $destinationPath,
+            onIdentical: function (array $change): void {
+                // POTENTIAL ISSUE:
+                // A deleted (but still in the retention period) file could be restored.
+                // In that case, the legalHold tag should be applied.
+                // However, checking the presente on the DELETED tag each time is very time consuming in large buckets,
+                // because each file would trigger a request to s3 checking for the tag.
+                //
+                // We decide to ignore this use case for performance reason and ignore the identical files.
+                // Note that, in order for the restored file to be identical, the updated_at timestamp and the size should be equal as well.
+                // Even in that case, after the retention period the file would be deleted and, the day after, reupload as a new file and marked with the legal hold
+
+                /*
+                $key = $destination->fullPath($destinationPath, $change['path']);
+                if ($destination->tag($key, ObjectLock::DELETED_TAG) !== null) {
+                    $destination->legalHold($key, true);
+                    $destination->setTag($key, ObjectLock::DELETED_TAG, null);
+                }
+                */
+            },
+            excludes: $source->excludes,
+        );
+
+        $transferred = 0;
+        $deletedCount = 0;
+
+        try {
+            if ($diff->countChanged() > 0) {
+                $rclone->copy(
+                    $folder,
+                    $destinationPath,
+                    fn (string $line) => $command->line('[rclone] '.$line),
+                    $source->excludes,
+                );
+
+                // Legal holds and tags are applied a few objects at a time.
+                $lock->protect(
+                    $this->objectKeys($diff->changed(), $destination, $destinationPath),
+                    onDone: function () use (&$transferred): void {
+                        $transferred++;
+                    },
+                );
+            }
+
+            if ($diff->countDeleted() > 0) {
+                $lock->expire(
+                    $this->objectKeys($diff->deleted(), $destination, $destinationPath),
+                    onDone: function (string $key) use ($command, &$deletedCount): void {
+                        $command->line("  ⊘ {$key}");
+                        $deletedCount++;
+                    },
+                );
+            }
+        } finally {
+            $diff->close();
+        }
+
+        return ['changed' => $transferred, 'deleted' => $deletedCount];
     }
 
     /**

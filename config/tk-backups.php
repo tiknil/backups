@@ -42,12 +42,19 @@ return [
          * Each entry is a source disk whose files will be incrementally
          * backed up to the destination disk (tk-backups.destination_disk).
          *
-         * 'disk'   : the filesystems disk name. Both 's3' and 'local'
-         *            disks are supported.
-         * 'folder' : optional sub-folder within that disk to scope the backup.
+         * 'disk'    : the filesystems disk name. Both 's3' and 'local'
+         *             disks are supported.
+         * 'folder'  : optional sub-folder (string) or list of sub-folders
+         *             within that disk to scope the backup. Each folder is
+         *             backed up separately, to `{prefix}/{disk}/{folder}`.
+         * 'exclude' : optional rclone pattern (string) or list of patterns
+         *             to skip, relative to the root of each folder. Excluded
+         *             files are also ignored by the deletion detection, so
+         *             they never remove previously backed up files.
          *
          * e.g.
          * [ 'disk' => 's3', 'folder' => 'blog' ]
+         * [ 'disk' => 's3', 'folder' => ['blog', 'docs'], 'exclude' => ['*.tmp', '/cache/**'] ]
          * [ 'disk' => 'local', 'folder' => 'uploads' ]
          */
     ],

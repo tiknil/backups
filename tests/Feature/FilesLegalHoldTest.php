@@ -104,6 +104,25 @@ it('compares the source folder with the destination prefix', function () {
         ->and(str_ends_with($argv[2], 'bucket/backups/files/source/uploads'))->toBeTrue();
 });
 
+it('checks every folder of a source with its excludes', function () {
+    mkdir($this->dir.'/docs');
+    $fake = FakeRclone::create("= a.txt\n");
+    $handler = holdHandler();
+
+    [$success] = holdRun($fake, $handler, [
+        ['disk' => 'source', 'folder' => ['uploads', 'docs'], 'exclude' => ['*.tmp', 'cache']],
+    ]);
+
+    $calls = $fake->calls();
+
+    expect($success)->toBeTrue()
+        ->and($calls)->toHaveCount(2)
+        ->and($calls[0]['argv'][1])->toBe(realpath($this->dir).'/uploads')
+        ->and($calls[1]['argv'][1])->toBe(realpath($this->dir).'/docs')
+        ->and($calls[0]['argv'])->toContain('--exclude=*.tmp', '--exclude=cache')
+        ->and($calls[1]['argv'])->toContain('--exclude=*.tmp', '--exclude=cache');
+});
+
 it('does not run rclone when the source was never uploaded', function () {
     $fake = FakeRclone::create("= a.txt\n");
     $handler = holdHandler(fn (string $name): array => match ($name) {

@@ -137,6 +137,14 @@ class BackupChecks extends Command
                 continue;
             }
 
+            $invalid = $this->invalidOption((array) $source);
+
+            if ($invalid !== null) {
+                $this->failMessage("File source '{$diskName}' is invalid: {$invalid}");
+
+                continue;
+            }
+
             try {
                 if (EndpointFactory::make($diskName) === null) {
                     $this->failMessage("Disk '{$diskName}' uses an unsupported driver for file backup.");
@@ -153,6 +161,30 @@ class BackupChecks extends Command
                 $this->failMessage("File source '{$diskName}' is invalid: {$e->getMessage()}");
             }
         }
+    }
+
+    /**
+     * `folder` and `exclude` accept a single string or a list of strings.
+     *
+     * @param  array<string, mixed>  $source
+     */
+    private function invalidOption(array $source): ?string
+    {
+        foreach (['folder', 'exclude'] as $key) {
+            $value = $source[$key] ?? null;
+
+            if ($value === null || is_string($value)) {
+                continue;
+            }
+
+            if (is_array($value) && array_filter($value, fn (mixed $item): bool => !is_string($item)) === []) {
+                continue;
+            }
+
+            return "'{$key}' must be a string or a list of strings.";
+        }
+
+        return null;
     }
 
     private function checkArchivePassword(): void
