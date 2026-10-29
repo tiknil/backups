@@ -40,6 +40,16 @@ it('keeps a partial redraw buffered until the next write', function () {
         ->toBe([[Process::OUT, 'frame2']]);
 });
 
+it('keeps a line split across writes intact', function () {
+    expect(linesOf('echo "+ "; usleep(50000); echo "added.txt\n";'))
+        ->toBe([[Process::OUT, '+ added.txt']]);
+});
+
+it('keeps a redraw split across writes intact', function () {
+    expect(linesOf('echo "old\rnew: "; usleep(50000); echo "done\n";'))
+        ->toBe([[Process::OUT, 'new: done']]);
+});
+
 it('yields stderr on the error stream', function () {
     expect(linesOf('fwrite(STDERR, "boom\n");'))
         ->toBe([[Process::ERR, 'boom']]);

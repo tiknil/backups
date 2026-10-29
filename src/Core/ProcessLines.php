@@ -130,8 +130,10 @@ final class ProcessLines
             $tail = (string) array_pop($lines);
 
             // Progress redraws never end with "\n": keep only the latest frame
-            // so the buffer cannot grow with each redraw.
-            $this->partial[$stream] = $flush ? '' : self::lastSegment($tail);
+            // so the buffer cannot grow with each redraw. The tail is left
+            // untrimmed: it is still incomplete, and trimming would eat the
+            // bytes that close the line on the next read.
+            $this->partial[$stream] = $flush ? '' : self::frame($tail);
 
             if ($flush && $tail !== '') {
                 $lines[] = $tail;
@@ -150,8 +152,14 @@ final class ProcessLines
     /** Text after the last carriage return, trimmed. */
     private static function lastSegment(string $line): string
     {
+        return trim(self::frame($line));
+    }
+
+    /** Text after the last carriage return, kept as is: the line may be incomplete. */
+    private static function frame(string $line): string
+    {
         $cut = strrpos($line, "\r");
 
-        return trim($cut === false ? $line : substr($line, $cut + 1));
+        return $cut === false ? $line : substr($line, $cut + 1);
     }
 }
