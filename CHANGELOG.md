@@ -1,5 +1,11 @@
 # Changelog
 
+### v0.7.0
+
+- Aggiunta la possibilità di indicare un array di prefissi di file da escludere dai backup di un disco
+- Aggiunta la possibilità di indicare un array di prefissi di file da includere nei backup di un disco
+- Fix gestione output di rclone check
+
 ### v0.6.0
 
 - Aggiunto comando `backup:hold-files` per applicare il legal hold a file sottoposti a backup, utile in caso di errore in fase di creazione del backup dei file.
