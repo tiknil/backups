@@ -17,11 +17,15 @@ composer require tiknil/backups
 
 ## Configurazione
 
-Assicurati che `mysqldump` e `rclone` siano disponibili. Per installarli su Ubuntu:
+Sono richiesti `mysqldump` e `rclone`. Su Ubuntu:
 
 ```
-sudo apt install -y mysql-client rclone
+sudo apt install -y mysql-client curl unzip
+curl -fsSL https://rclone.org/install.sh -o /tmp/rclone-install.sh
+sudo bash /tmp/rclone-install.sh
 ```
+
+NB: in Forge è stata predisposta una Recipe per eseguire in automatico questa operazione
 
 Configura il disco di backup in `config/filesystems.php`:
 

@@ -177,6 +177,51 @@ it('passes the exclude patterns to the copy', function () {
     ]);
 });
 
+it('passes the configured resource limits', function (string $operation) {
+    config([
+        'tk-backups.list_cutoff' => 10000,
+        'tk-backups.checker_concurrency' => 8,
+        'tk-backups.max_buffer_memory' => '256M',
+    ]);
+
+    $fake = FakeRclone::create();
+    rclone($fake)->{$operation}();
+
+    expect($fake->lastArgv())->toContain(
+        '--list-cutoff=10000',
+        '--checkers=8',
+        '--max-buffer-memory=256M',
+    );
+})->with(['check', 'copy']);
+
+it('omits empty resource options', function (string $operation, mixed $value) {
+    config([
+        'tk-backups.list_cutoff' => $value,
+        'tk-backups.checker_concurrency' => $value,
+        'tk-backups.max_buffer_memory' => $value,
+    ]);
+
+    $fake = FakeRclone::create();
+    rclone($fake)->{$operation}();
+
+    $options = preg_grep('/^--(list-cutoff|checkers|max-buffer-memory)=/', $fake->lastArgv());
+
+    expect($options)->toBe([]);
+})->with(['check', 'copy'])->with([null, '', '   ']);
+
+it('keeps explicit zero resource limits', function (string $operation) {
+    config([
+        'tk-backups.list_cutoff' => 0,
+        'tk-backups.max_buffer_memory' => '0',
+    ]);
+
+    $fake = FakeRclone::create();
+    rclone($fake)->{$operation}();
+
+    expect($fake->lastArgv())->toContain('--list-cutoff=0', '--max-buffer-memory=0')
+        ->not->toContain('--checkers=');
+})->with(['check', 'copy']);
+
 it('runs the configured number of parallel transfers', function () {
     config(['tk-backups.transfer_concurrency' => 4]);
 

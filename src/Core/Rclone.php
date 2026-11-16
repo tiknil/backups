@@ -65,6 +65,7 @@ class Rclone
             $this->destination->path($destinationPath),
             '--combined', '-',
             ...$this->excludeArgs($excludes),
+            ...$this->commonArgs(),
         ];
 
         $stream = new ProcessLines($this->process($args));
@@ -139,6 +140,7 @@ class Rclone
         $args[] = '--stats-one-line-date';
         $args[] = '--s3-upload-cutoff='.config('tk-backups.multipart_cutoff', '5M');
         $args[] = '--transfers='.$this->transfers();
+        $args = [...$args, ...$this->commonArgs()];
 
         $stream = new ProcessLines($this->process($args));
 
@@ -175,6 +177,26 @@ class Rclone
             ?? throw new \RuntimeException(
                 "Disk '{$diskName}' must use the 's3' or 'local' driver for file backup."
             );
+    }
+
+    /** @return array<int, string> */
+    private function commonArgs(): array
+    {
+        $options = [
+            'list-cutoff' => config('tk-backups.list_cutoff'),
+            'checkers' => config('tk-backups.checker_concurrency'),
+            'max-buffer-memory' => config('tk-backups.max_buffer_memory'),
+        ];
+
+        $args = [];
+
+        foreach ($options as $option => $value) {
+            if ($value !== null && trim((string) $value) !== '') {
+                $args[] = '--'.$option.'='.$value;
+            }
+        }
+
+        return $args;
     }
 
     /** Parallel transfers: explicit value, else the package config. */

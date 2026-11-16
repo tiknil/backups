@@ -31,8 +31,14 @@ return [
 
     // Number of parallel S3 requests
     'concurrency' => (int) env('BACKUP_CONCURRENCY', 8),
-    // Number of rclone parallel transfers
+    // Rclone max parallel transfers (--transfers)
     'transfer_concurrency' => (int) env('BACKUP_TRANSFER_CONCURRENCY', 16),
+    // Rclone max parallel checkers (--checkers)
+    'checker_concurrency' => env('BACKUP_CHECKERS'),
+    // Rclone (>= 1.70) directory list cutoff (--list-cutoff). Uses disks instead of RAM for directories with more than cutoff files
+    'list_cutoff' => env('BACKUP_LIST_CUTOFF'),
+    // Rclone (>= 1.70) max buffer memory (--max-buffer-memory)
+    'max_buffer_memory' => env('BACKUP_MAX_BUFFER_MEMORY'),
     // Cutoff for using multipart request during rclone copies
     // NB: use 5M for digitalocean spaces sources, otherwise there are checksum issue due to different calc strategies
     'multipart_cutoff' => env('BACKUP_MULTIPART_CUTOFF', '5M'),
