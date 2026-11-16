@@ -144,7 +144,7 @@ it('passes the exclude patterns to the check', function () {
     ]);
 });
 
-it('copies the two paths with progress', function () {
+it('copies the two paths with progress and a combined report', function () {
     $fake = FakeRclone::create();
 
     rclone($fake)->copy('files', 'backup/files');
@@ -153,6 +153,8 @@ it('copies the two paths with progress', function () {
         'copy',
         '/source/files',
         '/destination/backup/files',
+        '--combined',
+        '-',
         '--progress',
         '--stats-one-line-date',
         '--s3-upload-cutoff=5M',
@@ -169,6 +171,8 @@ it('passes the exclude patterns to the copy', function () {
         'copy',
         '/source/files',
         '/destination/backup/files',
+        '--combined',
+        '-',
         '--exclude=*.tmp',
         '--progress',
         '--stats-one-line-date',
@@ -250,7 +254,7 @@ it('never runs with fewer than one transfer', function () {
 });
 
 it('streams the copy output to the caller', function () {
-    $fake = FakeRclone::create("Transferred: 1 / 1\nElapsed time: 1s\n");
+    $fake = FakeRclone::create("+ new.txt\n", "Transferred: 1 / 1\nElapsed time: 1s\n");
 
     $lines = [];
     rclone($fake)->copy(onLine: function (string $line) use (&$lines): void {
@@ -258,6 +262,60 @@ it('streams the copy output to the caller', function () {
     });
 
     expect($lines)->toBe(['Transferred: 1 / 1', 'Elapsed time: 1s']);
+});
+
+it('returns changes and deletions from the copy report', function () {
+    $fake = FakeRclone::create(COMBINED_REPORT."\n");
+
+    $report = rclone($fake)->copy();
+
+    expect(iterator_to_array($report))->toBe([
+        ['status' => '+', 'path' => 'added.txt'],
+        ['status' => '*', 'path' => 'changed.txt'],
+        ['status' => '-', 'path' => 'removed.txt'],
+    ])
+        ->and($report->countChanged())->toBe(2)
+        ->and($report->countDeleted())->toBe(1)
+        ->and($fake->calls())->toHaveCount(1)
+        ->and($fake->lastArgv())->not->toContain('--checksum', '--no-traverse', '--retries');
+});
+
+it('returns an empty copy report for identical files', function () {
+    $fake = FakeRclone::create("= same.txt\n");
+
+    expect(iterator_to_array(rclone($fake)->copy()))->toBe([]);
+});
+
+it('rejects error entries even when the copy exits successfully', function () {
+    $fake = FakeRclone::create("+ a.txt\n! broken.txt\n", 'permission denied');
+
+    expect(fn () => rclone($fake)->copy())
+        ->toThrow(RuntimeException::class, 'rclone copy failed: permission denied');
+});
+
+it('streams large copy reports with bounded memory', function () {
+    $fake = FakeRclone::create(str_repeat("+ added.txt\n- removed.txt\n", 50000));
+    $rclone = rclone($fake);
+    memory_reset_peak_usage();
+    $before = memory_get_usage();
+
+    $report = $rclone->copy();
+
+    expect($report->countChanged())->toBe(50000)
+        ->and($report->countDeleted())->toBe(50000)
+        ->and(memory_get_peak_usage() - $before)->toBeLessThan(12 * 1024 * 1024);
+});
+
+it('cleans up copy reports on failure', function () {
+    $before = get_resources('stream');
+    $fake = FakeRclone::create("+ a.txt\n- removed.txt\n", 'copy failed', exitCode: 1);
+
+    expect(fn () => rclone($fake)->copy())->toThrow(RuntimeException::class);
+
+    $remaining = array_diff_key(get_resources('stream'), $before);
+    $files = array_filter($remaining, fn ($stream): bool => stream_get_meta_data($stream)['wrapper_type'] === 'plainfile');
+
+    expect($files)->toBe([]);
 });
 
 it('fails when the copy fails', function () {
@@ -303,6 +361,20 @@ it('probes the disk listing its root', function () {
     expect($fake->lastArgv())->toBe(['lsd', realpath($dir), '--retries', '1']);
 });
 
+it('reads the version of the installed binary', function () {
+    $fake = FakeRclone::create("rclone v1.71.2\n- os/version: darwin\n");
+
+    expect(Rclone::version($fake->binary))->toBe('1.71.2')
+        ->and($fake->lastArgv())->toBe(['version']);
+});
+
+it('fails when the version cannot be read', function () {
+    $fake = FakeRclone::create("unexpected output\n");
+
+    expect(fn () => Rclone::version($fake->binary))
+        ->toThrow(RuntimeException::class, 'Could not read the rclone version.');
+});
+
 it('fails the probe when rclone cannot reach the disk', function () {
     $dir = rcloneEnvDir();
     config(['filesystems.disks.local' => ['driver' => 'local', 'root' => $dir]]);
@@ -343,6 +415,8 @@ it('builds both endpoints from the disk names', function () {
         'copy',
         realpath($source),
         realpath($target),
+        '--combined',
+        '-',
         '--progress',
         '--stats-one-line-date',
         '--s3-upload-cutoff=5M',

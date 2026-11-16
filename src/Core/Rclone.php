@@ -15,6 +15,9 @@ use Tiknil\Backups\Core\Endpoints\RcloneEndpoint;
  */
 class Rclone
 {
+    /** `copy --combined` exists from this release. */
+    public const MIN_VERSION = '1.71.0';
+
     private const BIN = 'rclone';
 
     public function __construct(
@@ -120,19 +123,21 @@ class Rclone
     /**
      * Copy new or changed files from source to destination.
      *
-     * @param  callable(string): void|null  $onLine  Receives each progress line.
+     * @param  callable(string): void|null  $onLine  Receives progress and log lines from stderr.
      * @param  array<int, string>  $excludes  rclone patterns to skip, relative to `$sourcePath`.
+     * @return DiffReport Differences, readable after the copy succeeds.
      */
     public function copy(
         string $sourcePath = '',
         string $destinationPath = '',
         ?callable $onLine = null,
         array $excludes = [],
-    ): void {
+    ): DiffReport {
         $args = [
             'copy',
             $this->source->path($sourcePath),
             $this->destination->path($destinationPath),
+            '--combined', '-',
             ...$this->excludeArgs($excludes),
         ];
 
@@ -144,14 +149,36 @@ class Rclone
 
         $stream = new ProcessLines($this->process($args));
 
-        $exitCode = $stream->run(function (string $line) use ($onLine): void {
-            if ($onLine !== null) {
-                $onLine($line);
-            }
-        });
+        $changes = new DiffReport;
+        $hasErrors = false;
 
-        if ($exitCode !== 0) {
-            throw new \RuntimeException('rclone copy failed: '.$stream->errorTail());
+        try {
+            foreach ($stream->lines() as [$type, $line]) {
+                if ($type === Process::ERR) {
+                    if ($onLine !== null) {
+                        $onLine($line);
+                    }
+
+                    continue;
+                }
+
+                if (preg_match('/^([+*!-])\s+(.+)$/', $line, $m) !== 1) {
+                    continue;
+                }
+
+                $hasErrors = $hasErrors || $m[1] === '!';
+                $changes->append(['status' => $m[1], 'path' => $m[2]]);
+            }
+
+            if ($hasErrors || $stream->exitCode() !== 0) {
+                throw new \RuntimeException('rclone copy failed: '.$stream->errorTail());
+            }
+
+            return $changes;
+        } catch (\Throwable $e) {
+            $changes->close();
+
+            throw $e;
         }
     }
 
@@ -168,6 +195,20 @@ class Rclone
 
         $process->setTimeout(60);
         $process->mustRun();
+    }
+
+    /** Version of the installed binary, e.g. "1.71.0". */
+    public static function version(?string $binary = null): string
+    {
+        $process = new Process([$binary ?? self::BIN, 'version'], null, RcloneConfig::env());
+        $process->setTimeout(10);
+        $process->mustRun();
+
+        if (preg_match('/^rclone v?(\d+\.\d+\.\d+)/m', $process->getOutput(), $m) !== 1) {
+            throw new \RuntimeException('Could not read the rclone version.');
+        }
+
+        return $m[1];
     }
 
     /** Resolve a disk name to the matching rclone endpoint. */

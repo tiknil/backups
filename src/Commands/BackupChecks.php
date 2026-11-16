@@ -102,20 +102,35 @@ class BackupChecks extends Command
     {
         $this->line('rclone');
 
-        if ($this->binaryAvailable(['rclone', 'version'])) {
-            $this->rcloneAvailable = true;
-            $this->pass('rclone is available.');
+        try {
+            $version = Rclone::version();
+        } catch (\Throwable) {
+            $version = null;
+        }
+
+        if ($version === null) {
+            if ((array) config('tk-backups.file_sources') !== []) {
+                $this->failMessage('rclone is not available in PATH (required by tk-backups.file_sources).');
+
+                return;
+            }
+
+            $this->skip('rclone is not available (optional: no file sources configured).');
 
             return;
         }
 
-        if ((array) config('tk-backups.file_sources') !== []) {
-            $this->failMessage('rclone is not available in PATH (required by tk-backups.file_sources).');
+        $this->rcloneAvailable = true;
+
+        if (version_compare($version, Rclone::MIN_VERSION, '<')) {
+            $this->failMessage(
+                "rclone {$version} is too old: ".Rclone::MIN_VERSION.' or newer is required (copy --combined).'
+            );
 
             return;
         }
 
-        $this->skip('rclone is not available (optional: no file sources configured).');
+        $this->pass("rclone {$version} is available.");
     }
 
     private function checkFileSources(): void

@@ -17,13 +17,15 @@ composer require tiknil/backups
 
 ## Configurazione
 
-Sono richiesti `mysqldump` e `rclone`. Su Ubuntu:
+Sono richiesti `mysqldump` e `rclone` **>= 1.71**. Su Ubuntu:
 
 ```
 sudo apt install -y mysql-client curl unzip
 curl -fsSL https://rclone.org/install.sh -o /tmp/rclone-install.sh
 sudo bash /tmp/rclone-install.sh
 ```
+
+Lo script installa l'ultima versione. I pacchetti `apt` sono spesso più vecchi del minimo richiesto.
 
 NB: in Forge è stata predisposta una Recipe per eseguire in automatico questa operazione
 

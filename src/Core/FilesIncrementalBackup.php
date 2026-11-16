@@ -86,33 +86,13 @@ class FilesIncrementalBackup
         $folder = $source->folder;
         $destinationPath = $source->destinationPath($this->prefix);
 
-        $command->info("Checking {$source->scope()} for diffs");
+        $command->info("Copying {$source->scope()} and detecting changes");
 
-        // Identical files are handled as they stream in: with millions of
-        // them, keeping the list around would exhaust memory for nothing.
-        $diff = $rclone->check(
+        $diff = $rclone->copy(
             $folder,
             $destinationPath,
-            onIdentical: function (array $change): void {
-                // POTENTIAL ISSUE:
-                // A deleted (but still in the retention period) file could be restored.
-                // In that case, the legalHold tag should be applied.
-                // However, checking the presente on the DELETED tag each time is very time consuming in large buckets,
-                // because each file would trigger a request to s3 checking for the tag.
-                //
-                // We decide to ignore this use case for performance reason and ignore the identical files.
-                // Note that, in order for the restored file to be identical, the updated_at timestamp and the size should be equal as well.
-                // Even in that case, after the retention period the file would be deleted and, the day after, reupload as a new file and marked with the legal hold
-
-                /*
-                $key = $destination->fullPath($destinationPath, $change['path']);
-                if ($destination->tag($key, ObjectLock::DELETED_TAG) !== null) {
-                    $destination->legalHold($key, true);
-                    $destination->setTag($key, ObjectLock::DELETED_TAG, null);
-                }
-                */
-            },
-            excludes: $source->excludes,
+            fn (string $line) => $command->line('[rclone] '.$line),
+            $source->excludes,
         );
 
         $transferred = 0;
@@ -120,13 +100,6 @@ class FilesIncrementalBackup
 
         try {
             if ($diff->countChanged() > 0) {
-                $rclone->copy(
-                    $folder,
-                    $destinationPath,
-                    fn (string $line) => $command->line('[rclone] '.$line),
-                    $source->excludes,
-                );
-
                 // Legal holds and tags are applied a few objects at a time.
                 $lock->protect(
                     $this->objectKeys($diff->changed(), $destination, $destinationPath),

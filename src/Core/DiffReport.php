@@ -19,6 +19,9 @@ final class DiffReport implements \IteratorAggregate
 
     private int $deleted = 0;
 
+    /** @var array{status: string, path: string}|null */
+    private ?array $last = null;
+
     public function __construct()
     {
         $this->stream = tmpfile();
@@ -39,6 +42,12 @@ final class DiffReport implements \IteratorAggregate
     public function append(array $change): void
     {
         $stream = $this->stream();
+
+        // Retries can emit the same entry again; only consecutive duplicates are skipped.
+        if ($change === $this->last) {
+            return;
+        }
+
         $line = json_encode($change, JSON_THROW_ON_ERROR)."\n";
         $length = strlen($line);
         $offset = 0;
@@ -56,6 +65,8 @@ final class DiffReport implements \IteratorAggregate
 
             $offset += $written;
         }
+
+        $this->last = $change;
 
         if (in_array($change['status'], ['+', '*'], true)) {
             $this->changed++;

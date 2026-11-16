@@ -23,6 +23,19 @@ it('handles an empty report', function () {
         ->and(iterator_to_array($report))->toBe([]);
 });
 
+it('skips consecutive duplicate entries', function () {
+    $report = new DiffReport;
+    $report->append(['status' => '+', 'path' => 'new.txt']);
+    $report->append(['status' => '+', 'path' => 'new.txt']);
+    $report->append(['status' => '*', 'path' => 'new.txt']);
+    $report->append(['status' => '-', 'path' => 'removed.txt']);
+    $report->append(['status' => '-', 'path' => 'removed.txt']);
+
+    expect($report->countChanged())->toBe(2)
+        ->and($report->countDeleted())->toBe(1)
+        ->and(iterator_to_array($report))->toHaveCount(3);
+});
+
 it('removes the temporary file when closed or released', function () {
     $report = new DiffReport;
     $property = new ReflectionProperty(DiffReport::class, 'stream');
