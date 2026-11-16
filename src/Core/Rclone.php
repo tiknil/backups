@@ -18,6 +18,9 @@ class Rclone
     /** `copy --combined` exists from this release. */
     public const MIN_VERSION = '1.71.0';
 
+    /** Accepted `compare_method` values. */
+    public const COMPARE_METHODS = ['full', 'size', 'checksum'];
+
     private const BIN = 'rclone';
 
     public function __construct(
@@ -125,6 +128,7 @@ class Rclone
      *
      * @param  callable(string): void|null  $onLine  Receives progress and log lines from stderr.
      * @param  array<int, string>  $excludes  rclone patterns to skip, relative to `$sourcePath`.
+     * @param  string  $compareMethod  'full', 'size' or 'checksum', as resolved by {@see FileSource}.
      * @return DiffReport Differences, readable after the copy succeeds.
      */
     public function copy(
@@ -132,6 +136,7 @@ class Rclone
         string $destinationPath = '',
         ?callable $onLine = null,
         array $excludes = [],
+        string $compareMethod = 'full',
     ): DiffReport {
         $args = [
             'copy',
@@ -141,11 +146,9 @@ class Rclone
             ...$this->excludeArgs($excludes),
         ];
 
-        $args[] = '--progress';
-        $args[] = '--stats-one-line-date';
         $args[] = '--s3-upload-cutoff='.config('tk-backups.multipart_cutoff', '5M');
         $args[] = '--transfers='.$this->transfers();
-        $args = [...$args, ...$this->commonArgs()];
+        $args = [...$args, ...$this->compareArgs($compareMethod), ...$this->commonArgs()];
 
         $stream = new ProcessLines($this->process($args));
 
@@ -238,6 +241,23 @@ class Rclone
         }
 
         return $args;
+    }
+
+    /**
+     * rclone flags for the diff method chosen by the caller.
+     *
+     * @return array<int, string>
+     */
+    private function compareArgs(string $compareMethod): array
+    {
+        return match (strtolower(trim($compareMethod))) {
+            'full' => [],
+            'size' => ['--size-only'],
+            'checksum' => ['--checksum'],
+            default => throw new \RuntimeException(
+                "Unknown compare method '{$compareMethod}': use ".implode(', ', self::COMPARE_METHODS).'.'
+            ),
+        };
     }
 
     /** Parallel transfers: explicit value, else the package config. */

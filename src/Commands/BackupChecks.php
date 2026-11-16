@@ -5,6 +5,7 @@ namespace Tiknil\Backups\Commands;
 use Illuminate\Console\Command;
 use Symfony\Component\Process\Process;
 use Tiknil\Backups\Core\Endpoints\EndpointFactory;
+use Tiknil\Backups\Core\FileSource;
 use Tiknil\Backups\Core\Rclone;
 use Tiknil\Backups\Core\S3Disk;
 
@@ -161,6 +162,9 @@ class BackupChecks extends Command
             }
 
             try {
+                // Valida anche compare_method, con il default calcolato dal driver.
+                FileSource::list((array) $source);
+
                 if (EndpointFactory::make($diskName) === null) {
                     $this->failMessage("Disk '{$diskName}' uses an unsupported driver for file backup.");
 

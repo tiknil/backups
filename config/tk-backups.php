@@ -57,11 +57,14 @@ return [
          *             to skip, relative to the root of each folder. Excluded
          *             files are also ignored by the deletion detection, so
          *             they never remove previously backed up files.
+         * 'compare_method' : optional. How rclone detects a changed file:
+         *             'full' (size + mtime), 'size' (size only) or 'checksum'.
+         *             Empty: 'checksum' for s3 sources, 'full' for local ones.
          *
          * e.g.
-         * [ 'disk' => 's3', 'folder' => 'blog' ]
-         * [ 'disk' => 's3', 'folder' => ['blog', 'docs'], 'exclude' => ['*.tmp', '/cache/**'] ]
-         * [ 'disk' => 'local', 'folder' => 'uploads' ]
+         * [ 'disk' => 's3', 'folder' => 'blog', 'compare_method' => 'checksum' ]
+         * [ 'disk' => 's3', 'folder' => ['blog', 'docs'], 'exclude' => ['*.tmp', '/cache/**'], 'compare_method' => 'full' ]
+         * [ 'disk' => 'local', 'folder' => 'uploads', 'compare_method' => 'full' ]
          */
     ],
 

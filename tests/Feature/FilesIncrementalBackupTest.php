@@ -10,7 +10,7 @@ use Tiknil\Backups\Core\FilesIncrementalBackup;
 use Tiknil\Backups\Core\FileSource;
 use Tiknil\Backups\Core\ObjectLock;
 
-function runFileBackup(FakeRclone $fake, RecordingS3 $handler): array
+function runFileBackup(FakeRclone $fake, RecordingS3 $handler, string $compareMethod = 'full'): array
 {
     $disk = s3disk($handler, root: 'root');
     $backup = new FilesIncrementalBackup([], 'backups', 'files');
@@ -20,7 +20,7 @@ function runFileBackup(FakeRclone $fake, RecordingS3 $handler): array
 
     return (new ReflectionMethod($backup, 'backupSource'))->invoke(
         $backup,
-        new FileSource('storage', 'uploads', ['*.tmp']),
+        new FileSource('storage', 'uploads', ['*.tmp'], $compareMethod),
         rclone($fake),
         $disk,
         new ObjectLock($disk),
@@ -52,6 +52,15 @@ it('does not update locks or retention when the copy fails', function () {
 
     expect(fn () => runFileBackup($fake, $handler))->toThrow(RuntimeException::class, 'rclone copy failed')
         ->and($handler->calls)->toBe([]);
+});
+
+it('passes the source compare method to rclone', function () {
+    $fake = FakeRclone::create("= same.txt\n");
+    $handler = new RecordingS3(fn (): array => []);
+
+    runFileBackup($fake, $handler, 'size');
+
+    expect($fake->lastArgv())->toContain('--size-only')->not->toContain('--checksum');
 });
 
 it('does not update identical files', function () {

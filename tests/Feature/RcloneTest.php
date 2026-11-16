@@ -147,7 +147,7 @@ it('passes the exclude patterns to the check', function () {
 it('copies the two paths with progress and a combined report', function () {
     $fake = FakeRclone::create();
 
-    rclone($fake)->copy('files', 'backup/files');
+    rclone($fake)->copy('files', 'backup/files', compareMethod: 'full');
 
     expect($fake->lastArgv())->toBe([
         'copy',
@@ -155,8 +155,6 @@ it('copies the two paths with progress and a combined report', function () {
         '/destination/backup/files',
         '--combined',
         '-',
-        '--progress',
-        '--stats-one-line-date',
         '--s3-upload-cutoff=5M',
         '--transfers=16',
     ]);
@@ -165,7 +163,7 @@ it('copies the two paths with progress and a combined report', function () {
 it('passes the exclude patterns to the copy', function () {
     $fake = FakeRclone::create();
 
-    rclone($fake)->copy('files', 'backup/files', excludes: ['*.tmp']);
+    rclone($fake)->copy('files', 'backup/files', excludes: ['*.tmp'], compareMethod: 'full');
 
     expect($fake->lastArgv())->toBe([
         'copy',
@@ -174,11 +172,55 @@ it('passes the exclude patterns to the copy', function () {
         '--combined',
         '-',
         '--exclude=*.tmp',
-        '--progress',
-        '--stats-one-line-date',
         '--s3-upload-cutoff=5M',
         '--transfers=16',
     ]);
+});
+
+it('rejects a blank compare method', function () {
+    $fake = FakeRclone::create();
+
+    expect(fn () => rclone($fake)->copy(compareMethod: '  '))
+        ->toThrow(RuntimeException::class, "Unknown compare method '  '");
+});
+
+it('compares by size and modtime with the full method', function () {
+    $fake = FakeRclone::create();
+
+    rclone($fake)->copy(compareMethod: 'full');
+
+    expect($fake->lastArgv())->not->toContain('--checksum', '--size-only');
+});
+
+it('compares by size only with the size method', function () {
+    $fake = FakeRclone::create();
+
+    rclone($fake)->copy(compareMethod: 'size');
+
+    expect($fake->lastArgv())->toContain('--size-only')->not->toContain('--checksum');
+});
+
+it('compares by checksum with the checksum method', function () {
+    $fake = FakeRclone::create();
+
+    rclone($fake)->copy(compareMethod: 'checksum');
+
+    expect($fake->lastArgv())->toContain('--checksum')->not->toContain('--size-only');
+});
+
+it('normalises the compare method', function () {
+    $fake = FakeRclone::create();
+
+    rclone($fake)->copy(compareMethod: ' Checksum ');
+
+    expect($fake->lastArgv())->toContain('--checksum');
+});
+
+it('rejects an unknown compare method', function () {
+    $fake = FakeRclone::create();
+
+    expect(fn () => rclone($fake)->copy(compareMethod: 'magic'))
+        ->toThrow(RuntimeException::class, "Unknown compare method 'magic'");
 });
 
 it('passes the configured resource limits', function (string $operation) {
@@ -189,7 +231,10 @@ it('passes the configured resource limits', function (string $operation) {
     ]);
 
     $fake = FakeRclone::create();
-    rclone($fake)->{$operation}();
+    match ($operation) {
+        'check' => rclone($fake)->check(),
+        'copy' => rclone($fake)->copy(compareMethod: 'full'),
+    };
 
     expect($fake->lastArgv())->toContain(
         '--list-cutoff=10000',
@@ -206,7 +251,10 @@ it('omits empty resource options', function (string $operation, mixed $value) {
     ]);
 
     $fake = FakeRclone::create();
-    rclone($fake)->{$operation}();
+    match ($operation) {
+        'check' => rclone($fake)->check(),
+        'copy' => rclone($fake)->copy(compareMethod: 'full'),
+    };
 
     $options = preg_grep('/^--(list-cutoff|checkers|max-buffer-memory)=/', $fake->lastArgv());
 
@@ -220,7 +268,10 @@ it('keeps explicit zero resource limits', function (string $operation) {
     ]);
 
     $fake = FakeRclone::create();
-    rclone($fake)->{$operation}();
+    match ($operation) {
+        'check' => rclone($fake)->check(),
+        'copy' => rclone($fake)->copy(compareMethod: 'full'),
+    };
 
     expect($fake->lastArgv())->toContain('--list-cutoff=0', '--max-buffer-memory=0')
         ->not->toContain('--checkers=');
@@ -230,7 +281,7 @@ it('runs the configured number of parallel transfers', function () {
     config(['tk-backups.transfer_concurrency' => 4]);
 
     $fake = FakeRclone::create();
-    rclone($fake)->copy();
+    rclone($fake)->copy(compareMethod: 'full');
 
     expect($fake->lastArgv())->toContain('--transfers=4')->not->toContain('--transfers=16');
 });
@@ -239,7 +290,7 @@ it('lets the caller override the transfer concurrency', function () {
     config(['tk-backups.transfer_concurrency' => 4]);
 
     $fake = FakeRclone::create();
-    rclone($fake, transfers: 2)->copy();
+    rclone($fake, transfers: 2)->copy(compareMethod: 'full');
 
     expect($fake->lastArgv())->toContain('--transfers=2');
 });
@@ -248,7 +299,7 @@ it('never runs with fewer than one transfer', function () {
     config(['tk-backups.transfer_concurrency' => 0]);
 
     $fake = FakeRclone::create();
-    rclone($fake)->copy();
+    rclone($fake)->copy(compareMethod: 'full');
 
     expect($fake->lastArgv())->toContain('--transfers=1');
 });
@@ -259,7 +310,7 @@ it('streams the copy output to the caller', function () {
     $lines = [];
     rclone($fake)->copy(onLine: function (string $line) use (&$lines): void {
         $lines[] = $line;
-    });
+    }, compareMethod: 'full');
 
     expect($lines)->toBe(['Transferred: 1 / 1', 'Elapsed time: 1s']);
 });
@@ -267,7 +318,7 @@ it('streams the copy output to the caller', function () {
 it('returns changes and deletions from the copy report', function () {
     $fake = FakeRclone::create(COMBINED_REPORT."\n");
 
-    $report = rclone($fake)->copy();
+    $report = rclone($fake)->copy(compareMethod: 'full');
 
     expect(iterator_to_array($report))->toBe([
         ['status' => '+', 'path' => 'added.txt'],
@@ -283,13 +334,13 @@ it('returns changes and deletions from the copy report', function () {
 it('returns an empty copy report for identical files', function () {
     $fake = FakeRclone::create("= same.txt\n");
 
-    expect(iterator_to_array(rclone($fake)->copy()))->toBe([]);
+    expect(iterator_to_array(rclone($fake)->copy(compareMethod: 'full')))->toBe([]);
 });
 
 it('rejects error entries even when the copy exits successfully', function () {
     $fake = FakeRclone::create("+ a.txt\n! broken.txt\n", 'permission denied');
 
-    expect(fn () => rclone($fake)->copy())
+    expect(fn () => rclone($fake)->copy(compareMethod: 'full'))
         ->toThrow(RuntimeException::class, 'rclone copy failed: permission denied');
 });
 
@@ -299,7 +350,7 @@ it('streams large copy reports with bounded memory', function () {
     memory_reset_peak_usage();
     $before = memory_get_usage();
 
-    $report = $rclone->copy();
+    $report = $rclone->copy(compareMethod: 'full');
 
     expect($report->countChanged())->toBe(50000)
         ->and($report->countDeleted())->toBe(50000)
@@ -310,7 +361,7 @@ it('cleans up copy reports on failure', function () {
     $before = get_resources('stream');
     $fake = FakeRclone::create("+ a.txt\n- removed.txt\n", 'copy failed', exitCode: 1);
 
-    expect(fn () => rclone($fake)->copy())->toThrow(RuntimeException::class);
+    expect(fn () => rclone($fake)->copy(compareMethod: 'full'))->toThrow(RuntimeException::class);
 
     $remaining = array_diff_key(get_resources('stream'), $before);
     $files = array_filter($remaining, fn ($stream): bool => stream_get_meta_data($stream)['wrapper_type'] === 'plainfile');
@@ -321,7 +372,7 @@ it('cleans up copy reports on failure', function () {
 it('fails when the copy fails', function () {
     $fake = FakeRclone::create('', 'directory not found', exitCode: 1);
 
-    expect(fn () => rclone($fake)->copy())
+    expect(fn () => rclone($fake)->copy(compareMethod: 'full'))
         ->toThrow(RuntimeException::class, 'rclone copy failed: directory not found');
 });
 
@@ -336,7 +387,7 @@ it('passes the rclone config and the endpoint env to the process', function () {
     ], 'backups');
 
     $fake = FakeRclone::create();
-    rclone($fake, new LocalEndpoint($dir), new S3Endpoint($disk))->copy();
+    rclone($fake, new LocalEndpoint($dir), new S3Endpoint($disk))->copy(compareMethod: 'full');
 
     $env = $fake->calls()[0]['env'];
     $prefix = 'RCLONE_CONFIG_'.strtoupper(explode(':', $fake->lastArgv()[2])[0]).'_';
@@ -409,7 +460,7 @@ it('builds both endpoints from the disk names', function () {
 
     $fake = FakeRclone::create();
 
-    Rclone::between('source', 'target', $fake->binary)->copy();
+    Rclone::between('source', 'target', $fake->binary)->copy(compareMethod: 'full');
 
     expect($fake->lastArgv())->toBe([
         'copy',
@@ -417,8 +468,6 @@ it('builds both endpoints from the disk names', function () {
         realpath($target),
         '--combined',
         '-',
-        '--progress',
-        '--stats-one-line-date',
         '--s3-upload-cutoff=5M',
         '--transfers=16',
     ]);

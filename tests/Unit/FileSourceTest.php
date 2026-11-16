@@ -53,6 +53,27 @@ it('applies the same excludes to every folder', function () {
         ->toBe([['cache'], ['cache']]);
 });
 
+it('reads the compare method', function (string $driver, mixed $value, string $expected) {
+    config(['filesystems.disks.upload' => ['driver' => $driver, 'root' => '/tmp']]);
+
+    $sources = FileSource::list(['disk' => 'upload', 'compare_method' => $value]);
+
+    expect($sources[0]->compareMethod)->toBe($expected);
+})->with([
+    's3 default' => ['s3', null, 'checksum'],
+    's3 blank' => ['s3', '', 'checksum'],
+    'local default' => ['local', null, 'full'],
+    'explicit' => ['s3', 'size', 'size'],
+    'normalised' => ['local', ' Checksum ', 'checksum'],
+]);
+
+it('rejects an unknown compare method', function () {
+    config(['filesystems.disks.upload' => ['driver' => 's3', 'root' => '/tmp']]);
+
+    expect(fn () => FileSource::list(['disk' => 'upload', 'compare_method' => 'magic']))
+        ->toThrow(RuntimeException::class, "Unknown compare method 'magic'");
+});
+
 it('ignores entries without a disk name', function (array $config) {
     expect(FileSource::list($config))->toBe([]);
 })->with([

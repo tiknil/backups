@@ -107,7 +107,7 @@ class BackupRestore extends Command
             $rclone->copy(
                 $backupPath,
                 $folder,
-                fn (string $line) => $this->line('[rclone] '.$line),
+                fn (string $line) => $this->line('[rclone] '.$line)
             );
 
             $this->info('✓ Restored '.$restore.' files to '.$scope.'.');

@@ -10,6 +10,9 @@ namespace Tiknil\Backups\Core;
  */
 final class FileSource
 {
+    /** Criterio di confronto, sempre impostato: default dal driver del disco. */
+    public readonly string $compareMethod;
+
     /**
      * @param  array<int, string>  $excludes  Pattern rclone, relativi alla radice della cartella.
      */
@@ -17,7 +20,10 @@ final class FileSource
         public readonly string $disk,
         public readonly string $folder = '',
         public readonly array $excludes = [],
-    ) {}
+        ?string $compareMethod = null,
+    ) {
+        $this->compareMethod = self::method($compareMethod, $disk);
+    }
 
     /**
      * Espande una voce di `tk-backups.file_sources` in una sorgente per cartella.
@@ -34,9 +40,10 @@ final class FileSource
         }
 
         $excludes = self::patterns($config['exclude'] ?? []);
+        $method = $config['compare_method'] ?? null;
 
         return array_map(
-            fn (string $folder): self => new self($disk, $folder, $excludes),
+            fn (string $folder): self => new self($disk, $folder, $excludes, is_string($method) ? $method : null),
             self::folders($config['folder'] ?? ''),
         );
     }
@@ -87,5 +94,26 @@ final class FileSource
             array_map(fn (mixed $pattern): string => is_string($pattern) ? trim($pattern) : '', $patterns),
             fn (string $pattern): bool => $pattern !== '',
         ));
+    }
+
+    /**
+     * Criterio di confronto normalizzato: vuoto -> default del driver,
+     * altrimenti deve essere uno di {@see Rclone::COMPARE_METHODS}.
+     */
+    private static function method(?string $value, string $disk): string
+    {
+        $method = strtolower(trim((string) $value));
+
+        if ($method === '') {
+            $method = config("filesystems.disks.{$disk}.driver") === 's3' ? 'checksum' : 'full';
+        }
+
+        if (!in_array($method, Rclone::COMPARE_METHODS, true)) {
+            throw new \RuntimeException(
+                "Unknown compare method '{$method}': use ".implode(', ', Rclone::COMPARE_METHODS).'.'
+            );
+        }
+
+        return $method;
     }
 }

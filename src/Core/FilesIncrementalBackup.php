@@ -93,6 +93,7 @@ class FilesIncrementalBackup
             $destinationPath,
             fn (string $line) => $command->line('[rclone] '.$line),
             $source->excludes,
+            $source->compareMethod,
         );
 
         $transferred = 0;

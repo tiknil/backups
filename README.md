@@ -62,12 +62,12 @@ Pubblica il file di configurazione della libreria:
 php artisan vendor:publish --tag=tk-backups:config
 ```
 
-Sotto la voce `file_sources`, aggiungi eventuali dischi di storage e sottocartelle da sottoporre a backup. `folder` accetta una stringa o una lista di cartelle (ognuna backuppata separatamente) e `exclude` una stringa o una lista di pattern rclone da saltare, relativi alla radice di ogni cartella:
+Sotto la voce `file_sources`, aggiungi eventuali dischi di storage e sottocartelle da sottoporre a backup. `folder` accetta una stringa o una lista di cartelle (ognuna backuppata separatamente), `exclude` una stringa o una lista di pattern rclone da saltare, relativi alla radice di ogni cartella, e `compare_method` (opzionale) il criterio di confronto:
 
 ```php
 'file_sources' => [
     ['disk' => 's3', 'folder' => ['blog', 'docs'], 'exclude' => ['*.tmp', '/cache/**']],
-    ['disk' => 'local', 'folder' => 'uploads'],
+    ['disk' => 'local', 'folder' => 'uploads', 'compare_method' => 'checksum'],
 ],
 ```
 
@@ -97,6 +97,11 @@ La libreria si occupa di:
 Le differenze dello storage vengono scritte e lette progressivamente in un report
 temporaneo, senza accumulare la lista in RAM. Il report viene rimosso a fine
 operazione, anche in caso di eccezioni; non supporta la ripresa.
+Il confronto usa `compare_method` (opzionale, per voce di `file_sources`): `full`
+(dimensione e data di modifica), `size` (solo dimensione) o `checksum` (hash).
+Se vuoto viene risolto alla costruzione della sorgente: `checksum` per un disco
+`s3`, `full` per uno locale. `checksum` rileva anche modifiche che conservano
+dimensione e data, ma richiede di leggere i file sorgente.
 La directory temporanea di PHP (`sys_get_temp_dir()`) deve avere spazio disponibile
 ed essere su disco.
 
