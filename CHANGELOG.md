@@ -1,5 +1,14 @@
 # Changelog
 
+### v1.0.0
+
+- Unico comando rclone per fare sia la copia che il report del diff tra storage e backup (prima c'era prima il check e poi il copy).
+- Ottimizzato metodo rclone di verifica file cambiati.
+- Aggiunte config opzionali di ottimizzazione rclone (--checkers, --max-buffer-size e --file-cutoff)
+- `compare_method` opzionale per ogni voce di `file_sources` (`full`, `size`, `checksum`), risolto in `FileSource`: vuoto significa `checksum` per dischi s3 e `full` per locali
+
+**Breaking**: necessario rclone >= 1.71
+
 ### v0.7.0
 
 - Aggiunta la possibilità di indicare un array di prefissi di file da escludere dai backup di un disco
